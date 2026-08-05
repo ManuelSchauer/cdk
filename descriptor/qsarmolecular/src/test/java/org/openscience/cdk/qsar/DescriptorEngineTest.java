@@ -109,7 +109,7 @@ class DescriptorEngineTest extends CDKTestCase {
         DescriptorEngine engine = new DescriptorEngine(IMolecularDescriptor.class,
                 DefaultChemObjectBuilder.getInstance());
         String[] availClasses = engine.getAvailableDictionaryClasses();
-        Assertions.assertEquals(5, availClasses.length);
+        Assertions.assertEquals(6, availClasses.length);
     }
 
     @Test
