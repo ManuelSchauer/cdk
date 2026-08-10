@@ -2132,9 +2132,19 @@ public enum Descriptor {
 
             } else {
                 for (int i = 0; i < numberOfMolecules; i++) {
-                    //TODO: why is there no try-catch for every single descriptor calculation necessary here? Same in the methods below
-                    if (!Descriptor.setDescriptorsForSingleMolecule(descriptors, atomContainerArray[i], matrix[i], startIndices, i, nanPositionsList)) {
+                    try {
+                        if (!Descriptor.setDescriptorsForSingleMolecule(descriptors, atomContainerArray[i], matrix[i], startIndices, i, nanPositionsList)) {
+                            hasNaN.set(true);
+                        }
+                    } catch (InterruptedException exception) {
+                        throw exception;
+                    } catch (Exception exception) {
                         hasNaN.set(true);
+                        Descriptor.LOGGER.log(
+                                Level.WARNING,
+                                String.format("Descriptor.setDescriptorsForMoleculesByBatchParallelization: Exception for molecule index: %d", i),
+                                exception
+                        );
                     }
                 }
             }
@@ -2257,8 +2267,19 @@ public enum Descriptor {
 
             } else {
                 for (int i = 0; i < numberOfMolecules; i++) {
-                    if (!Descriptor.setDescriptorsForSingleMoleculeSmilesString(descriptors, moleculeSmilesStringArray[i], matrix[i], startIndices, i, electronDonationModel, nanPositionsList)) {
+                    try {
+                        if (!Descriptor.setDescriptorsForSingleMoleculeSmilesString(descriptors, moleculeSmilesStringArray[i], matrix[i], startIndices, i, electronDonationModel, nanPositionsList)) {
+                            hasNaN.set(true);
+                        }
+                    } catch (InterruptedException exception) {
+                        throw exception;
+                    } catch (Exception exception) {
                         hasNaN.set(true);
+                        Descriptor.LOGGER.log(
+                                Level.WARNING,
+                                String.format("Descriptor.setDescriptorsForMoleculeBySmilesStringsBatchParallelization: Exception for molecule index: %d", i),
+                                exception
+                        );
                     }
                 }
             }
@@ -2366,8 +2387,19 @@ public enum Descriptor {
                 );
             } else {
                 for (int i = 0; i < atomContainerArray.length; i++) {
-                    if (!Descriptor.setDescriptorsForSingleMolecule(descriptors, atomContainerArray[i], matrix[i], startIndices, i, nanPositionsList)) {
+                    try {
+                        if (!Descriptor.setDescriptorsForSingleMolecule(descriptors, atomContainerArray[i], matrix[i], startIndices, i, nanPositionsList)) {
+                            hasNaN.set(true);
+                        }
+                    } catch (InterruptedException exception) {
+                        throw exception;
+                    } catch (Exception exception) {
                         hasNaN.set(true);
+                        Descriptor.LOGGER.log(
+                                Level.WARNING,
+                                String.format("Descriptor.setDescriptorsForMoleculesByMoleculeParallelization: Exception for molecule index: %d", i),
+                                exception
+                        );
                     }
                 }
             }
@@ -2480,8 +2512,19 @@ public enum Descriptor {
                 );
             } else {
                 for (int i = 0; i < numberOfMolecules; i++) {
-                    if (!Descriptor.setDescriptorsForSingleMoleculeSmilesString(descriptors, moleculeSmilesStringArray[i], matrix[i], startIndices, i, electronDonationModel, nanPositionsList)) {
+                    try {
+                        if (!Descriptor.setDescriptorsForSingleMoleculeSmilesString(descriptors, moleculeSmilesStringArray[i], matrix[i], startIndices, i, electronDonationModel, nanPositionsList)) {
+                            hasNaN.set(true);
+                        }
+                    } catch (InterruptedException exception) {
+                        throw exception;
+                    } catch (Exception exception) {
                         hasNaN.set(true);
+                        Descriptor.LOGGER.log(
+                                Level.WARNING,
+                                String.format("Descriptor.setDescriptorsForMoleculesBySmilesStringParallelization: Exception for molecule index: %d", i),
+                                exception
+                        );
                     }
                 }
             }
