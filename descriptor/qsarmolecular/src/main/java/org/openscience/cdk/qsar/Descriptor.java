@@ -33,6 +33,7 @@ import org.openscience.cdk.fingerprint.IBitFingerprint;
 import org.openscience.cdk.fingerprint.IFingerprinter;
 import org.openscience.cdk.fingerprint.MACCSFingerprinter;
 import org.openscience.cdk.fingerprint.PubchemFingerprinter;
+import org.openscience.cdk.geometry.GeometryUtil;
 import org.openscience.cdk.graph.Cycles;
 import org.openscience.cdk.interfaces.IAtom;
 import org.openscience.cdk.interfaces.IAtomContainer;
@@ -75,6 +76,7 @@ import org.openscience.cdk.qsar.descriptors.molecular.LongestAliphaticChainDescr
 import org.openscience.cdk.qsar.descriptors.molecular.MDEDescriptor;
 import org.openscience.cdk.qsar.descriptors.molecular.MannholdLogPDescriptor;
 import org.openscience.cdk.qsar.descriptors.molecular.PetitjeanNumberDescriptor;
+import org.openscience.cdk.qsar.descriptors.molecular.PetitjeanShapeIndexDescriptor;
 import org.openscience.cdk.qsar.descriptors.molecular.RotatableBondsCountDescriptor;
 import org.openscience.cdk.qsar.descriptors.molecular.RuleOfFiveDescriptor;
 import org.openscience.cdk.qsar.descriptors.molecular.SmallRingDescriptor;
@@ -85,6 +87,11 @@ import org.openscience.cdk.qsar.descriptors.molecular.VAdjMaDescriptor;
 import org.openscience.cdk.qsar.descriptors.molecular.WeightDescriptor;
 import org.openscience.cdk.qsar.descriptors.molecular.WeightedPathDescriptor;
 import org.openscience.cdk.qsar.descriptors.molecular.WienerNumbersDescriptor;
+import org.openscience.cdk.qsar.descriptors.molecular.CPSADescriptor;
+import org.openscience.cdk.qsar.descriptors.molecular.GravitationalIndexDescriptor;
+import org.openscience.cdk.qsar.descriptors.molecular.LengthOverBreadthDescriptor;
+import org.openscience.cdk.qsar.descriptors.molecular.MomentOfInertiaDescriptor;
+import org.openscience.cdk.qsar.descriptors.molecular.WHIMDescriptor;
 import org.openscience.cdk.qsar.descriptors.molecular.XLogPDescriptor;
 import org.openscience.cdk.qsar.descriptors.molecular.ZagrebIndexDescriptor;
 import org.openscience.cdk.qsar.result.DoubleArrayResult;
@@ -112,13 +119,10 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.IntStream;
 
-//TODO: add a note on which descriptors are included here (all IMolecularDescriptor implementing classes except for
-// those that require 3D coordinates, correct? Actually, we could still add them along with a new field "requires3DCoordinates")
-
 /**
  * Descriptor related calculations based on the CDK for the enrichment of data vectors.
  * <p>
- *     Each enum constant carries six fields that describe its characteristics and can be queried via the
+ *     Each enum constant carries seven fields that describe its characteristics and can be queried via the
  *     corresponding getter methods:
  *     <ul>
  *         <li><b>isFast</b> ({@code boolean}) – whether this descriptor can be calculated quickly.
@@ -142,6 +146,9 @@ import java.util.stream.IntStream;
  *             Examples include {@link #A_LOG_P}, {@link #X_LOG_P}, {@link #KAPPA_SHAPE_INDICES},
  *             and {@link #HYBRIDIZATION_RATIO}.
  *             Use {@link #needsExplicitHydrogens()} to query this field.</li>
+ *         <li><b>requires3DCoordinates</b> ({@code boolean}) – whether this descriptor requires
+ *             three-dimensional coordinates to be present in the molecule before calculation.
+ *             Use {@link #requires3DCoordinates()} to query this field.</li>
  *         <li><b>descriptorComponentNumber</b> ({@code int}) – the number of individual numerical
  *             values produced by this descriptor. Most descriptors return a single value (e.g.,
  *             {@link #MOLECULAR_WEIGHT}, {@link #TPSA}), while multi-value descriptors return arrays
@@ -254,7 +261,7 @@ import java.util.stream.IntStream;
  *     Descriptor.A_LOG_P
  * };
  * // or use a method to get specific descriptors:
- * Descriptor[] descriptors = Descriptor.getSpecifiedDescriptors(); // e.g., user-defined selection
+ * Descriptor[] descriptors = Descriptor.getSpecifiedDescriptors(false, false, false, false); // e.g., user-defined selection
  *
  * // 2. Determine total number of components needed (because some descriptors return multiple values, it is not equal to the number of descriptors)
  * int componentCount = Descriptor.getNumberOfComponents(descriptors);
@@ -325,7 +332,7 @@ public enum Descriptor {
      *
      * @see WeightDescriptor
      */
-    MOLECULAR_WEIGHT(true, true, false, false, 1, "Molecular Weight"),
+    MOLECULAR_WEIGHT(true, true, false, false, false, 1, "Molecular Weight"),
     /**
      * Wiener number, returns Wiener path number and Wiener polarity number.
      * Path number: sum of the distances between any two atoms in the molecule.<br>
@@ -334,79 +341,79 @@ public enum Descriptor {
      *
      * @see WienerNumbersDescriptor
      */
-    WIENER_NUMBER(true, true, false, false, 2, "Wiener Number"),
+    WIENER_NUMBER(true, true, false, false, false, 2, "Wiener Number"),
     /**
      * Atom count, counts the number of all atoms in the given molecule.
      *
      * @see AtomCountDescriptor
      */
-    ATOM_COUNT(true, true, false, false, 1, "Atom Count"),
+    ATOM_COUNT(true, true, false, false, false, 1, "Atom Count"),
     /**
      * Atom count heavy, counts the number of all heavy atoms in the given molecule.
      *
      * @see AtomCountDescriptor
      */
-    ATOM_COUNT_HEAVY(true, true, false, false, 1, "Atom Count"),
+    ATOM_COUNT_HEAVY(true, true, false, false, false, 1, "Atom Count"),
     /**
      * Atom count C, counts the number of all carbon atoms separately in the given molecule.
      *
      * @see AtomCountDescriptor
      */
-    ATOM_COUNT_C(true, true, false, false, 1, "Atom Count C"),
+    ATOM_COUNT_C(true, true, false, false, false, 1, "Atom Count C"),
     /**
      * Atom count H, counts the number of all hydrogen atoms separately in the given molecule.
      *
      * @see AtomCountDescriptor
      */
-    ATOM_COUNT_H(true, true, false, false, 1, "Atom Count H"),
+    ATOM_COUNT_H(true, true, false, false, false, 1, "Atom Count H"),
     /**
      * Atom count N counts the number of all nitrogen atoms separately in the given molecule.
      *
      * @see AtomCountDescriptor
      */
-    ATOM_COUNT_N(true, true, false, false, 1, "Atom Count N"),
+    ATOM_COUNT_N(true, true, false, false, false, 1, "Atom Count N"),
     /**
      * Atom count O, counts the number of all oxygen atoms separately in the given molecule.
      *
      * @see AtomCountDescriptor
      */
-    ATOM_COUNT_O(true, true, false, false, 1, "Atom Count O"),
+    ATOM_COUNT_O(true, true, false, false, false, 1, "Atom Count O"),
     /**
      * Atom count S, counts the number of all sulfur atoms separately in the given molecule.
      *
      * @see AtomCountDescriptor
      */
-    ATOM_COUNT_S(true, true, false, false, 1, "Atom Count S"),
+    ATOM_COUNT_S(true, true, false, false, false, 1, "Atom Count S"),
     /**
      * Atom count P, counts the number of all phosphorus atoms separately in the given molecule.
      *
      * @see AtomCountDescriptor
      */
-    ATOM_COUNT_P(true, true, false, false, 1, "Atom Count P"),
+    ATOM_COUNT_P(true, true, false, false, false, 1, "Atom Count P"),
     /**
      * Atom count F, counts the number of all fluorine atoms separately in the given molecule.
      *
      * @see AtomCountDescriptor
      */
-    ATOM_COUNT_F(true, true, false, false, 1, "Atom Count F"),
+    ATOM_COUNT_F(true, true, false, false, false, 1, "Atom Count F"),
     /**
      * Atom count Br, counts the number of all bromine atoms separately in the given molecule.
      *
      * @see AtomCountDescriptor
      */
-    ATOM_COUNT_BR(true, true, false, false, 1, "Atom Count Br"),
+    ATOM_COUNT_BR(true, true, false, false, false, 1, "Atom Count Br"),
     /**
      * Atom count Cl, counts the number of all chlorine atoms separately in the given molecule.
      *
      * @see AtomCountDescriptor
      */
-    ATOM_COUNT_CL(true, true, false, false, 1, "Atom Count Cl"),
+    ATOM_COUNT_CL(true, true, false, false, false, 1, "Atom Count Cl"),
     /**
      * Atom count I, counts the number of all iodine atoms separately in the given molecule.
      *
      * @see AtomCountDescriptor
      */
-    ATOM_COUNT_I(true, true, false, false, 1, "Atom Count I"),
+    ATOM_COUNT_I(true, true, false, false, false, 1, "Atom Count I"),
     /**
      * Total bond count, counts the number of all bonds in a molecule, neglecting the order.
      * Double and triple bonds are counted as one bond.
@@ -414,27 +421,27 @@ public enum Descriptor {
      *
      * @see BondCountDescriptor
      */
-    BOND_COUNT_ALL(true, true, false, false, 1, "Bond Count All"),
+    BOND_COUNT_ALL(true, true, false, false, false, 1, "Bond Count All"),
     /**
      * Bond count single, counts the number of single bonds in a molecule.
      * No bonds to hydrogen atoms are counted.
      *
      * @see BondCountDescriptor
      */
-    BOND_COUNT_SINGLE(true, true, false, false, 1, "Bond Count Single"),
+    BOND_COUNT_SINGLE(true, true, false, false, false, 1, "Bond Count Single"),
     /**
      * Bond count double, counts the number of double bonds in a molecule.
      * No bonds to hydrogen atoms are counted.
      *
      * @see BondCountDescriptor
      */
-    BOND_COUNT_DOUBLE(true, true, false, false, 1, "Bond Count Double"),
+    BOND_COUNT_DOUBLE(true, true, false, false, false, 1, "Bond Count Double"),
     /**
      * Bond count triple, counts the number of triple bonds in a molecule.
      *
      * @see BondCountDescriptor
      */
-    BOND_COUNT_TRIPLE(true, true, false, false, 1, "Bond Count Triple"),
+    BOND_COUNT_TRIPLE(true, true, false, false, false, 1, "Bond Count Triple"),
     /**
      * H bond acceptor count, counts hydrogen bond acceptors based on a simplified PHACIR scheme.
      * It includes: Oxygen atoms with formal charge ≤ 0 (excluding: Aromatic ether oxygens and oxygens adjacent to nitrogen)
@@ -442,28 +449,28 @@ public enum Descriptor {
      *
      * @see HBondAcceptorCountDescriptor
      */
-    H_BOND_ACCEPTOR_COUNT(true, true, false, false, 1, "H-Bond Acceptor Count"),
+    H_BOND_ACCEPTOR_COUNT(true, true, false, false, false, 1, "H-Bond Acceptor Count"),
     /**
      * H bond donor count, counts hydrogen bond donors based on a simplified PHACIR classification.
      * It includes: OH groups where the oxygen has a formal charge ≥ 0 and NH groups where the nitrogen has a formal charge ≥ 0.
      *
      * @see HBondDonorCountDescriptor
      */
-    H_BOND_DONOR_COUNT(true, true, false, false, 1, "H-Bond Donor Count"),
+    H_BOND_DONOR_COUNT(true, true, false, false, false, 1, "H-Bond Donor Count"),
     /**
      * Aromatic atoms count, counts the number of aromatic atoms in a molecule.
      * Note: Requires that aromatic atoms in the molecule have already been detected and marked.
      *
      * @see AromaticAtomsCountDescriptor
      */
-    AROMATIC_ATOMS_COUNT(true, true, false, false, 1, "Aromatic Atoms Count"),
+    AROMATIC_ATOMS_COUNT(true, true, false, false, false, 1, "Aromatic Atoms Count"),
     /**
      * Aromatic bonds count, counts the number of aromatic bonds in a molecule.
      * Note: Requires that aromatic bonds in the molecule have already been detected and marked.
      *
      * @see AromaticBondsCountDescriptor
      */
-    AROMATIC_BONDS_COUNT(true, true, false, false, 1, "Aromatic Bonds Count"),
+    AROMATIC_BONDS_COUNT(true, true, false, false, false, 1, "Aromatic Bonds Count"),
     /**
      * Rotatable bonds count, counts the number of rotatable bonds in a molecule.
      * A rotatable bond is defined as any single non-ring bond, where atoms on both sides
@@ -471,19 +478,19 @@ public enum Descriptor {
      *
      * @see RotatableBondsCountDescriptor
      */
-    ROTATABLE_BONDS_COUNT(true, true, false, false, 1, "Rotatable Bonds Count"),
+    ROTATABLE_BONDS_COUNT(true, true, false, false, false, 1, "Rotatable Bonds Count"),
     /**
      * Basic group count, returns the number of basic groups in a molecule.
      *
      * @see BasicGroupCountDescriptor
      */
-    BASIC_GROUP_COUNT(true, true, false, false, 1, "Basic Group Count"),
+    BASIC_GROUP_COUNT(true, true, false, false, false, 1, "Basic Group Count"),
     /**
      * Acidic group count, returns the number of acidic groups in a molecule.
      *
      * @see AcidicGroupCountDescriptor
      */
-    ACIDIC_GROUP_COUNT(true, true, false, false, 1, "Acidic Group Count"),
+    ACIDIC_GROUP_COUNT(true, true, false, false, false, 1, "Acidic Group Count"),
     /**
      * TPSA descriptor, calculates the topological polar surface area (TPSA) of a molecule.
      * TPSA is the sum of the surface areas of polar atoms (typically oxygen and nitrogen)
@@ -491,14 +498,14 @@ public enum Descriptor {
      *
      * @see TPSADescriptor
      */
-    TPSA(true, true, false, false, 1, "TPSA"),
+    TPSA(true, true, false, false, false, 1, "TPSA"),
     /**
      * Largest chain descriptor, calculates the number of atoms in the longest chain in the molecule.
      * This is a simple topological descriptor that provides a measure of molecular linearity.
      *
      * @see LargestChainDescriptor
      */
-    LARGEST_CHAIN(true, true, false, false, 1, "Largest Chain"),
+    LARGEST_CHAIN(true, true, false, false, false, 1, "Largest Chain"),
     /**
      * Longest aliphatic chain descriptor, calculates the number of atoms in the longest aliphatic chain.
      * This descriptor provides information about the maximum linear extent of non-aromatic
@@ -506,7 +513,7 @@ public enum Descriptor {
      *
      * @see LongestAliphaticChainDescriptor
      */
-    LONGEST_ALIPHATIC_CHAIN(true, true, false, false, 1, "Longest Aliphatic Chain"),
+    LONGEST_ALIPHATIC_CHAIN(true, true, false, false, false, 1, "Longest Aliphatic Chain"),
     /**
      * BCUT descriptor, calculates Burden matrix modified eigenvalues with different weighting schemes. Returns 6 values:<br>
      * 1. BCUTw-1l, BCUTw-2l ... - nlow lowest atom weighted BCUTS<br>
@@ -519,7 +526,7 @@ public enum Descriptor {
      *
      * @see BCUTDescriptor
      */
-    BCUT(false, false, false, false, 6, "BCUT"),
+    BCUT(false, false, false, false, false, 6, "BCUT"),
     /**
      * Bond polarizability descriptor.
      * The BPolDescriptor calculates the bond polarizability of a molecule.
@@ -529,14 +536,14 @@ public enum Descriptor {
      *
      * @see BPolDescriptor
      */
-    B_POL(true, true, false, false, 1, "BPol"),
+    B_POL(true, true, false, false, false, 1, "BPol"),
     /**
      * Rule of five descriptor, calculates the number of failures of Lipinski's Rule of Five.
      * The descriptor returns the number of violations (0-4).
      *
      * @see RuleOfFiveDescriptor
      */
-    RULE_OF_FIVE(true, true, false, false, 1, "Rule of Five"),
+    RULE_OF_FIVE(true, true, false, false, false, 1, "Rule of Five"),
     /**
      * FMF (Framework Match Fraction) descriptor, calculates the ratio of heavy atoms in
      * the framework to the total number of heavy atoms in the molecule.
@@ -545,7 +552,7 @@ public enum Descriptor {
      *
      * @see FMFDescriptor
      */
-    FMF(true, true, false, false, 1, "FMF"),
+    FMF(true, true, false, false, false, 1, "FMF"),
     /**
      * Fractional C SP3 descriptor, characterizes the non-flatness of a molecule by calculating
      * the fraction of sp3 hybridized carbon atoms over the total carbon count.
@@ -554,7 +561,7 @@ public enum Descriptor {
      *
      * @see FractionalCSP3Descriptor
      */
-    FRACTIONAL_CSP3(true, true, false, false, 1, "Fractional CSP3"),
+    FRACTIONAL_CSP3(true, true, false, false, false, 1, "Fractional CSP3"),
     /**
      * Hybridization ratio descriptor, calculates the ratio of sp3 carbons to sp2 carbons.
      * This provides valuable information about the three-dimensionality and flatness
@@ -563,7 +570,7 @@ public enum Descriptor {
      *
      * @see HybridizationRatioDescriptor
      */
-    HYBRIDIZATION_RATIO(true, true, false, true, 1, "Hybridization Ratio"),
+    HYBRIDIZATION_RATIO(true, true, false, true, false, 1, "Hybridization Ratio"),
     /**
      * Kappa shape indices descriptor, calculates Kier and Hall kappa molecular shape indices.
      * These indices compare the molecular graph with minimal and maximal molecular graphs. Returns 3 values:<br>
@@ -574,7 +581,7 @@ public enum Descriptor {
      *
      * @see KappaShapeIndicesDescriptor
      */
-    KAPPA_SHAPE_INDICES(false, true, false, true, 3, "Kappa Shape Indices"),
+    KAPPA_SHAPE_INDICES(false, true, false, true, false, 3, "Kappa Shape Indices"),
     /**
      * Petitjean number descriptor, calculates an index characterizing molecular graph topology.
      * This topological descriptor is based on the calculation of the graph eccentricity
@@ -582,13 +589,13 @@ public enum Descriptor {
      *
      * @see PetitjeanNumberDescriptor
      */
-    PETITJEAN_NUMBER(true, true, false, false, 1, "Petitjean Number"),
+    PETITJEAN_NUMBER(true, true, false, false, false, 1, "Petitjean Number"),
     /**
      * Spiro atom count descriptor, calculates the number of spiro atoms in a molecule.
      *
      * @see SpiroAtomCountDescriptor
      */
-    SPIRO_ATOM_COUNT(true, true, false, false, 1, "Spiro Atom Count"),
+    SPIRO_ATOM_COUNT(true, true, false, false, false, 1, "Spiro Atom Count"),
     /**
      * VAdjMa descriptor, calculates the Vertex adjacency information (magnitude).
      * This is calculated as 1 + log2 m, where m is the number of heavy-heavy bonds.
@@ -597,7 +604,7 @@ public enum Descriptor {
      *
      * @see VAdjMaDescriptor
      */
-    V_ADJ_MAT(true, true, false, false, 1, "VAdjMa"),
+    V_ADJ_MAT(true, true, false, false, false, 1, "VAdjMa"),
     /**
      * Weighted path descriptor, evaluates the weighted path descriptors for a molecule.
      * Returns 5 values:<br>
@@ -610,7 +617,7 @@ public enum Descriptor {
      * Note: This descriptor computes all paths which is an NP-hard problem, do not use it for complex molecules.
      * @see WeightedPathDescriptor
      */
-    WEIGHTED_PATH(false, true, false, false, 5, "Weighted Path"),
+    WEIGHTED_PATH(false, true, false, false, false, 5, "Weighted Path"),
     /**
      * Zagreb index descriptor, calculates the Zagreb index of a molecule.
      * The Zagreb index is the sum of the squares of atom degrees over all heavy atoms,
@@ -618,7 +625,7 @@ public enum Descriptor {
      *
      * @see ZagrebIndexDescriptor
      */
-    ZAGREB_INDEX(true, true, false, false, 1, "Zagreb Index"),
+    ZAGREB_INDEX(true, true, false, false, false, 1, "Zagreb Index"),
     /**
      * CarbonTypes descriptor, calculates the frequency of occurrence of 9 different types of carbon atoms. Returns 9 values:<br>
      * 1. C1SP1 - triply bound carbon bound to one other carbon<br>
@@ -633,7 +640,7 @@ public enum Descriptor {
      *
      * @see CarbonTypesDescriptor
      */
-    CARBON_TYPES(true, true, false, false, 9, "Carbon Types"),
+    CARBON_TYPES(true, true, false, false, false, 9, "Carbon Types"),
     /**
      * ALogP descriptor, calculates Ghose-Crippen LogP values, molar refractivity values
      * and ALogP squared values. Returns 3 values:<br>
@@ -643,20 +650,20 @@ public enum Descriptor {
      *
      * @see ALOGPDescriptor
      */
-    A_LOG_P(true, true, false, true, 3, "ALogP"),
+    A_LOG_P(true, true, false, true, false, 3, "ALogP"),
     /**
      * XLogP descriptor, calculates logP based on the atom-type method called XLogP.
      * Requires all hydrogen's to be explicit.
      *
      * @see XLogPDescriptor
      */
-    X_LOG_P(true, true, false, true, 1, "XLogP"),
+    X_LOG_P(true, true, false, true, false, 1, "XLogP"),
     /**
      * JPlogP descriptor, calculates the octanol-water partition coefficient based on an atom contribution model.
      *
      * @see JPlogPDescriptor
      */
-    JP_LOG_P(true, false, false, false, 1, "JPlogP"),
+    JP_LOG_P(true, false, false, false, false, 1, "JPlogP"),
     /**
      * Mannhold LogP descriptor, calculates the octanol-water partition coefficient (logP) using the Mannhold method.
      * LogP describes the hydrophilicity or lipophilicity of a compound and is crucial for
@@ -664,13 +671,13 @@ public enum Descriptor {
      *
      * @see MannholdLogPDescriptor
      */
-    MANNHOLD_LOGP(true, true, false, false, 1, "Mannhold LogP"),
+    MANNHOLD_LOGP(true, true, false, false, false, 1, "Mannhold LogP"),
     /**
      * APol descriptor, calculates the sum of the atomic polarizabilities (including implicit hydrogens).
      *
      * @see APolDescriptor
      */
-    A_POL(true, true, false, false, 1, "APol"),
+    A_POL(true, true, false, false, false, 1, "APol"),
     /**
      * Autocorrelation charge descriptor, calculates topological autocorrelation vectors
      * that capture patterns related to charge distribution across the molecular structure.
@@ -680,7 +687,7 @@ public enum Descriptor {
      *
      * @see AutocorrelationDescriptorCharge
      */
-    AUTOCORRELATION_CHARGE(true, false, false, false, 5, "Autocorrelation Charge"),
+    AUTOCORRELATION_CHARGE(true, false, false, false, false, 5, "Autocorrelation Charge"),
     /**
      * Autocorrelation mass descriptor, calculates topological autocorrelation vectors
      * that capture patterns related to atomic mass distribution across the molecular structure.
@@ -690,7 +697,7 @@ public enum Descriptor {
      *
      * @see AutocorrelationDescriptorMass
      */
-    AUTOCORRELATION_MASS(true, true, false, false, 5, "Autocorrelation Mass"),
+    AUTOCORRELATION_MASS(true, true, false, false, false, 5, "Autocorrelation Mass"),
     /**
      * Autocorrelation polarizability descriptor, calculates topological autocorrelation vectors
      * that capture patterns related to polarizability distribution across the molecular structure.
@@ -701,7 +708,7 @@ public enum Descriptor {
      *
      * @see AutocorrelationDescriptorPolarizability
      */
-    AUTOCORRELATION_POLARIZABILITY(true, true, false, false, 5, "Autocorrelation Polarizability"),
+    AUTOCORRELATION_POLARIZABILITY(true, true, false, false, false, 5, "Autocorrelation Polarizability"),
     /**
      * Fragment complexity descriptor, calculates the complexity of a molecular system.
      * The complexity is defined as [Nilakantan, R. et al. Journal of chemical information and modeling. 2006. 46]:
@@ -715,7 +722,7 @@ public enum Descriptor {
      *
      * @see FragmentComplexityDescriptor
      */
-    FRAGMENT_COMPLEXITY(true, true, false, false, 1, "Fragment Complexity"),
+    FRAGMENT_COMPLEXITY(true, true, false, false, false, 1, "Fragment Complexity"),
     /**
      * Chi chain descriptor, calculates the Kier + Hall chi chain indices of orders 3 through 7.
      * These values characterize a molecular graph based on its chain subgraphs.
@@ -733,7 +740,7 @@ public enum Descriptor {
      *
      * @see ChiChainDescriptor
      */
-    CHI_CHAIN(false, true, false, false, 10, "Chi Chain"),
+    CHI_CHAIN(false, true, false, false, false, 10, "Chi Chain"),
     /**
      * Chi cluster descriptor, calculates Kier + Hall chi cluster indices of orders 3 through 6.
      * These values characterize a molecular graph based on its cluster subgraphs.
@@ -749,7 +756,7 @@ public enum Descriptor {
      *
      * @see ChiClusterDescriptor
      */
-    CHI_CLUSTER(false, true, false, false, 8, "Chi Cluster"),
+    CHI_CLUSTER(false, true, false, false, false, 8, "Chi Cluster"),
     /**
      * Chi path cluster descriptor, calculates Kier + Hall chi path cluster indices of orders 4 through 6.
      * These values characterize a molecular graph based on its path cluster subgraphs.
@@ -763,7 +770,7 @@ public enum Descriptor {
      *
      * @see ChiPathClusterDescriptor
      */
-    CHI_PATH_CLUSTER(false, true, false, false, 6, "Chi Path Cluster"),
+    CHI_PATH_CLUSTER(false, true, false, false, false, 6, "Chi Path Cluster"),
     /**
      * Chi path descriptor, calculates Kier + Hall chi path indices of orders 0 through 7.
      * These values characterize a molecular graph based on its path subgraphs.
@@ -787,7 +794,7 @@ public enum Descriptor {
      *
      * @see ChiPathDescriptor
      */
-    CHI_PATH(false, true, false, false, 16, "Chi Path"),
+    CHI_PATH(false, true, false, false, false, 16, "Chi Path"),
     /**
      * Fractional PSA descriptor, calculates the ratio of polar surface area to molecular weight.
      * This descriptor provides the polar surface area efficiency, which is the TPSADescriptor value divided by the
@@ -795,7 +802,7 @@ public enum Descriptor {
      *
      * @see FractionalPSADescriptor
      */
-    FRACTIONAL_PSA(true, true, false, false, 1, "Fractional PSA"),
+    FRACTIONAL_PSA(true, true, false, false, false, 1, "Fractional PSA"),
     /**
      * Largest pi system descriptor, calculates the number of atoms in the largest pi system.
      * This descriptor identifies the largest conjugated pi system within a molecule and
@@ -803,7 +810,7 @@ public enum Descriptor {
      *
      * @see LargestPiSystemDescriptor
      */
-    LARGEST_PI_SYSTEM(true, true, false, false, 1, "Largest Pi System"),
+    LARGEST_PI_SYSTEM(true, true, false, false, false, 1, "Largest Pi System"),
     /**
      * Descriptor that calculates small ring information.
      * Returns 11 values:<br>
@@ -821,7 +828,7 @@ public enum Descriptor {
      *
      * @see SmallRingDescriptor
      */
-    SMALL_RING(true, true, false, false, 11, "Small Ring"),
+    SMALL_RING(true, true, false, false, false, 11, "Small Ring"),
     /**
      * Amino acid count descriptor, calculates the number of each amino acid in a molecule.
      * Returns 20 values, one for each of the 20 standard amino acids:
@@ -832,7 +839,7 @@ public enum Descriptor {
      *
      * @see AminoAcidCountDescriptor
      */
-    AMINO_ACID_COUNT(false, true, false, false, 20, "Amino Acid Count"),
+    AMINO_ACID_COUNT(false, true, false, false, false, 20, "Amino Acid Count"),
     /**
      * Kier-Hall SMARTS descriptor that calculates counts of functional groups and substructures
      * based on the Kier and Hall SMARTS patterns, used for QSAR modeling and molecular characterization.
@@ -840,7 +847,7 @@ public enum Descriptor {
      *
      * @see KierHallSmartsDescriptor
      */
-    KIER_HALL_SMARTS(true, true, false, false, 79, "Kier Hall SMARTS"),
+    KIER_HALL_SMARTS(true, true, false, false, false, 79, "Kier Hall SMARTS"),
     /**
      * Eccentric connectivity index descriptor, calculates a topological descriptor that combines
      * distance and adjacency information.
@@ -850,7 +857,7 @@ public enum Descriptor {
      *
      * @see EccentricConnectivityIndexDescriptor
      */
-    ECCENTRIC_CONNECTIVITY_INDEX(true, true, false, false, 1, "Eccentric Connectivity Index"),
+    ECCENTRIC_CONNECTIVITY_INDEX(true, true, false, false, false, 1, "Eccentric Connectivity Index"),
     /**
      * MDE descriptor, calculates molecular distance edge descriptors for carbon, oxygen and nitrogen atoms.
      * These descriptors encode information about the connectivity and distance of atoms of specific types
@@ -878,7 +885,7 @@ public enum Descriptor {
      *
      * @see MDEDescriptor
      */
-    MDE(true, true, false, false, 19, "MDE"),
+    MDE(true, true, false, false, false, 19, "MDE"),
     /**
      * VABC descriptor, calculates the volume descriptor using the van der Waals volume calculation approach.
      * This descriptor estimates molecular volume based on atom contributions, considering bond types
@@ -886,7 +893,7 @@ public enum Descriptor {
      *
      * @see VABCDescriptor
      */
-    VABC(true, true, false, false, 1, "VABC"),
+    VABC(true, true, false, false, false, 1, "VABC"),
     /**
      * PubChem fingerprinter, generates a 881-bit binary fingerprint based on PubChem's substructure keys.
      * This fingerprint encodes the presence or absence of specific substructural features
@@ -894,61 +901,97 @@ public enum Descriptor {
      *
      * @see PubchemFingerprinter
      */
-    PUBCHEM_FINGERPRINTER(false, true, true, false, 881, "PubChem Fingerprinter"),
+    PUBCHEM_FINGERPRINTER(false, true, true, false, false, 881, "PubChem Fingerprinter"),
     /**
      * Circular fingerprinter, generates an extended-connectivity fingerprint with a path diameter of 0.
      *
      * @see CircularFingerprinter
      */
-    CIRCULAR_FINGERPRINTER_ECFP_0(true, true, true, false, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, "Circular Fingerprinter ECFP-0"),
+    CIRCULAR_FINGERPRINTER_ECFP_0(true, true, true, false, false, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, "Circular Fingerprinter ECFP-0"),
     /**
      * Circular fingerprinter, generates a functional class version of an extended-connectivity fingerprint with a path diameter of 0.
      *
      * @see CircularFingerprinter
      */
-    CIRCULAR_FINGERPRINTER_FCFP_0(true, true, true, false, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, "Circular Fingerprinter FCFP-0"),
+    CIRCULAR_FINGERPRINTER_FCFP_0(true, true, true, false, false, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, "Circular Fingerprinter FCFP-0"),
     /**
      * Circular fingerprinter, generates an extended-connectivity fingerprint with a path diameter of 2.
      *
      * @see CircularFingerprinter
      */
-    CIRCULAR_FINGERPRINTER_ECFP_2(true, true, true, false, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, "Circular Fingerprinter ECFP-2"),
+    CIRCULAR_FINGERPRINTER_ECFP_2(true, true, true, false, false, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, "Circular Fingerprinter ECFP-2"),
     /**
      * Circular fingerprinter, generates a functional class version of an extended-connectivity fingerprint with a path diameter of 2.
      *
      * @see CircularFingerprinter
      */
-    CIRCULAR_FINGERPRINTER_FCFP_2(true, true, true, false, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, "Circular Fingerprinter FCFP-2"),
+    CIRCULAR_FINGERPRINTER_FCFP_2(true, true, true, false, false, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, "Circular Fingerprinter FCFP-2"),
     /**
      * Circular fingerprinter, generates an extended-connectivity fingerprint with a path diameter of 4.
      *
      * @see CircularFingerprinter
      */
-    CIRCULAR_FINGERPRINTER_ECFP_4(true, true, true, false, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, "Circular Fingerprinter ECFP-4"),
+    CIRCULAR_FINGERPRINTER_ECFP_4(true, true, true, false, false, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, "Circular Fingerprinter ECFP-4"),
     /**
      * Circular fingerprinter, generates a functional class version of an extended-connectivity fingerprint with a path diameter of 4.
      *
      * @see CircularFingerprinter
      */
-    CIRCULAR_FINGERPRINTER_FCFP_4(true, true, true, false, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, "Circular Fingerprinter FCFP-4"),
+    CIRCULAR_FINGERPRINTER_FCFP_4(true, true, true, false, false, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, "Circular Fingerprinter FCFP-4"),
     /**
      * Circular fingerprinter, generates an extended-connectivity fingerprint with a path diameter of 6.
      *
      * @see CircularFingerprinter
      */
-    CIRCULAR_FINGERPRINTER_ECFP_6(true, true, true, false, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, "Circular Fingerprinter ECFP-6"),
+    CIRCULAR_FINGERPRINTER_ECFP_6(true, true, true, false, false, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, "Circular Fingerprinter ECFP-6"),
     /**
      * Circular fingerprinter, generates a functional class version of an extended-connectivity fingerprint with a path diameter of 6.
      *
      * @see CircularFingerprinter
      */
-    CIRCULAR_FINGERPRINTER_FCFP_6(true, true, true, false, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, "Circular Fingerprinter FCFP-6"),
+    CIRCULAR_FINGERPRINTER_FCFP_6(true, true, true, false, false, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, "Circular Fingerprinter FCFP-6"),
     /**
      * MACCS fingerprinter, generates a 166-bit binary fingerprint based on the MACCS structural keys.
      *
      * @see MACCSFingerprinter
      */
-    MACCS_FINGERPRINTER(true, true, true, false, 166, "MACCS Fingerprinter");
+    MACCS_FINGERPRINTER(true, true, true, false, false, 166, "MACCS Fingerprinter"),
+    /**
+     * Charged Partial Surface Area (CPSA) descriptor, calculates 29 surface and charge descriptors.
+     *
+     * @see CPSADescriptor
+     */
+    CPSA(false, true, false, false, true, 29, "CPSA"),
+    /**
+     * Gravitational Index descriptor, calculates 9 indices based on mass and 3D distances.
+     *
+     * @see GravitationalIndexDescriptor
+     */
+    GRAVITATIONAL_INDEX(true, true, false, false, true, 9, "Gravitational Index"),
+    /**
+     * Moment of Inertia descriptor, calculates 7 components from the principal moments of inertia.
+     *
+     * @see MomentOfInertiaDescriptor
+     */
+    MOMENT_OF_INERTIA(true, true, false, false, true, 7, "Moment of Inertia"),
+    /**
+     * WHIM (Weighted Holistic Invariant Molecular) descriptor, calculates 17 directional descriptors.
+     *
+     * @see WHIMDescriptor
+     */
+    WHIM(true, false, false, false, true, 17, "WHIM"),
+    /**
+     * Length Over Breadth descriptor, calculates maximum and minimum length-to-breadth ratios (LOBMAX, LOBMIN).
+     *
+     * @see LengthOverBreadthDescriptor
+     */
+    LENGTH_OVER_BREADTH(true, true, false, false, true, 2, "Length Over Breadth"),
+    /**
+     * Petitjean Shape Index descriptor, calculates topological and geometric shape indices (topoShape, geomShape).
+     *
+     * @see PetitjeanShapeIndexDescriptor
+     */
+    PETITJEAN_SHAPE_INDEX(true, true, false, false, true, 2, "Petitjean Shape Index");
 
     // Add new descriptor information here!
 
@@ -977,6 +1020,11 @@ public enum Descriptor {
     private final boolean needsExplicitHydrogens;
 
     /**
+     * Indicates whether this descriptor requires 3D coordinates.
+     */
+    private final boolean requires3DCoordinates;
+
+    /**
      * The number of components calculated by this descriptor.
      */
     private int descriptorComponentNumber;
@@ -995,14 +1043,16 @@ public enum Descriptor {
      *               inconsistent results or NaN values
      * @param isFingerprint true if the "descriptor" is actually a fingerprint, false otherwise
      * @param needsExplicitHydrogens true if the descriptor requires explicit hydrogens, false otherwise
+     * @param requires3DCoordinates true if the descriptor requires 3D coordinates, false otherwise
      * @param descriptorComponentNumber the number of components calculated by this descriptor
      * @param name the human-readable name of this descriptor for output purposes
      */
-    Descriptor(boolean isFast, boolean isSafe, boolean isFingerprint, boolean needsExplicitHydrogens, int descriptorComponentNumber, String name) {
+    Descriptor(boolean isFast, boolean isSafe, boolean isFingerprint, boolean needsExplicitHydrogens, boolean requires3DCoordinates, int descriptorComponentNumber, String name) {
         this.isFast = isFast;
         this.isSafe = isSafe;
         this.isFingerprint = isFingerprint;
         this.needsExplicitHydrogens = needsExplicitHydrogens;
+        this.requires3DCoordinates = requires3DCoordinates;
         this.descriptorComponentNumber = descriptorComponentNumber;
         this.name = name;
     }
@@ -1044,6 +1094,15 @@ public enum Descriptor {
      */
     public boolean needsExplicitHydrogens() {
         return this.needsExplicitHydrogens;
+    }
+
+    /**
+     * Returns whether this descriptor requires 3D coordinates.
+     *
+     * @return true if the descriptor requires 3D coordinates, false otherwise
+     */
+    public boolean requires3DCoordinates() {
+        return this.requires3DCoordinates;
     }
 
     /**
@@ -1413,6 +1472,24 @@ public enum Descriptor {
             // VABC
             Descriptor.descriptorToCdkObjectMap.put(Descriptor.VABC, new VABCDescriptor());
 
+            // CPSA
+            Descriptor.descriptorToCdkObjectMap.put(Descriptor.CPSA, new CPSADescriptor());
+
+            // GRAVITATIONAL_INDEX
+            Descriptor.descriptorToCdkObjectMap.put(Descriptor.GRAVITATIONAL_INDEX, new GravitationalIndexDescriptor());
+
+            // MOMENT_OF_INERTIA
+            Descriptor.descriptorToCdkObjectMap.put(Descriptor.MOMENT_OF_INERTIA, new MomentOfInertiaDescriptor());
+
+            // WHIM
+            Descriptor.descriptorToCdkObjectMap.put(Descriptor.WHIM, new WHIMDescriptor());
+
+            // LENGTH_OVER_BREADTH
+            Descriptor.descriptorToCdkObjectMap.put(Descriptor.LENGTH_OVER_BREADTH, new LengthOverBreadthDescriptor());
+
+            // PETITJEAN_SHAPE_INDEX
+            Descriptor.descriptorToCdkObjectMap.put(Descriptor.PETITJEAN_SHAPE_INDEX, new PetitjeanShapeIndexDescriptor());
+
             // Add new descriptor information here!
 
             // Initialize fingerprint pools with configurable pool size (default: 4)
@@ -1595,29 +1672,32 @@ public enum Descriptor {
 
     /**
      * Returns all available fingerprint descriptors.
+     * Note: Descriptors that require 3D coordinates are excluded.
      *
      * @return All available fingerprint descriptors
      */
     public static Descriptor[] getAllFingerprints() {
         return Arrays.stream(Descriptor.values())
-                .filter(Descriptor::isFingerprint)
+                .filter(d -> d.isFingerprint() && !d.requires3DCoordinates())
                 .toArray(Descriptor[]::new);
     }
 
     /**
      * Returns specified available descriptors.
-     * Note: Fast, safe, and non-fingerprint descriptors are automatically included by default.
+     * Note: Fast, safe, 2D/1D, and non-fingerprint descriptors are automatically included by default.
      *
      * @param isSlowlyCalculableDescriptorInclusion True: Slowly calculable descriptors are included in the result, false: Otherwise.
      * @param isUnsafeDescriptorInclusion True: Unsafe descriptors are included in the result, false: Unsafe descriptors
      *                                     are excluded from the result, this does not mean no NaN's can be produced.
      * @param isFingerprintAsDescriptorInclusion True: Fingerprint descriptors are included in the result, false: Fingerprint descriptors are excluded.
+     * @param is3dDescriptorInclusion True: 3D descriptors are included in the result, false: 3D descriptors are excluded.
      * @return Specified descriptors
      */
     public static Descriptor[] getSpecifiedDescriptors(
             boolean isSlowlyCalculableDescriptorInclusion,
             boolean isUnsafeDescriptorInclusion,
-            boolean isFingerprintAsDescriptorInclusion
+            boolean isFingerprintAsDescriptorInclusion,
+            boolean is3dDescriptorInclusion
     ) {
         // Initialize ArrayList with maximum possible capacity to avoid internal resizing during element addition
         List<Descriptor> result = new ArrayList<>(Descriptor.values().length);
@@ -1640,7 +1720,12 @@ public enum Descriptor {
                 includeDescriptor = false;
             }
 
-            // Only fast, safe, and non-fingerprint descriptors remain if all flags are false
+            // Exclude 3D descriptors if not requested
+            if (descriptor.requires3DCoordinates() && !is3dDescriptorInclusion) {
+                includeDescriptor = false;
+            }
+
+            // Only fast, safe, 2D/1D, and non-fingerprint descriptors remain if all flags are false
             if (includeDescriptor) {
                 result.add(descriptor);
             }
@@ -1917,6 +2002,12 @@ public enum Descriptor {
         if (molecule.isEmpty()) {
             return new float[0];
         }
+        if (descriptor.requires3DCoordinates() && !GeometryUtil.has3DCoordinates(molecule)) {
+            float[] result = new float[descriptor.getDescriptorComponentNumber()];
+            Arrays.fill(result, Float.NaN);
+            Descriptor.LOGGER.log(Level.WARNING, "Descriptor.calculateDescriptor: Descriptor {0} requires 3D coordinates, but the molecule does not have 3D coordinates.", descriptor.getName());
+            return result;
+        }
 
         float[] result = new float[descriptor.getDescriptorComponentNumber()];
         try {
@@ -2016,6 +2107,12 @@ public enum Descriptor {
         if (electronDonationModel == null) {
             throw new NullPointerException("Descriptor.calculateDescriptor: electronDonationModel must not be null.");
         }
+        if (descriptor.requires3DCoordinates()) {
+            float[] result = new float[descriptor.getDescriptorComponentNumber()];
+            Arrays.fill(result, Float.NaN);
+            Descriptor.LOGGER.log(Level.WARNING, "Descriptor.calculateDescriptor: Descriptor {0} requires 3D coordinates, which cannot be computed from a SMILES string.", descriptor.getName());
+            return result;
+        }
 
         try {
             IAtomContainer molecule = Descriptor.SMILES_PARSER.parseSmiles(smilesString);
@@ -2076,6 +2173,15 @@ public enum Descriptor {
         if (!Descriptor.validateAtomContainerArray(atomContainerArray, methodName)) {
             Descriptor.LOGGER.log(Level.WARNING, "{0} : Given atom container array is empty, calculation aborted.", methodName);
             return true;
+        }
+        for (Descriptor descriptor : descriptors) {
+            if (descriptor.requires3DCoordinates()) {
+                if (atomContainerArray[0] == null || !GeometryUtil.has3DCoordinates(atomContainerArray[0])) {
+                    Descriptor.LOGGER.log(Level.WARNING, "{0} : At least one descriptor requires 3D coordinates, but the first molecule does not have 3D coordinates. Calculation aborted.", methodName);
+                    return true;
+                }
+                break;
+            }
         }
         if (nanPositionsList == null) {
             throw new NullPointerException(methodName + ": nanPositionsList is null.");
@@ -2211,6 +2317,12 @@ public enum Descriptor {
             Descriptor.LOGGER.log(Level.WARNING, "{0} : Given SMILES string array is empty, calculation aborted.", methodName);
             return true;
         }
+        for (Descriptor descriptor : descriptors) {
+            if (descriptor.requires3DCoordinates()) {
+                Descriptor.LOGGER.log(Level.WARNING, "{0} : At least one descriptor requires 3D coordinates, which cannot be computed from SMILES strings. Calculation aborted.", methodName);
+                return true;
+            }
+        }
         if (nanPositionsList == null) {
             throw new NullPointerException(methodName + ": nanPositionsList is null.");
         }
@@ -2341,6 +2453,15 @@ public enum Descriptor {
             Descriptor.LOGGER.log(Level.WARNING, "{0} : Given atom container array is empty, calculation aborted.", methodName);
             return true;
         }
+        for (Descriptor descriptor : descriptors) {
+            if (descriptor.requires3DCoordinates()) {
+                if (atomContainerArray[0] == null || !GeometryUtil.has3DCoordinates(atomContainerArray[0])) {
+                    Descriptor.LOGGER.log(Level.WARNING, "{0} : At least one descriptor requires 3D coordinates, but the first molecule does not have 3D coordinates. Calculation aborted.", methodName);
+                    return true;
+                }
+                break;
+            }
+        }
         if (nanPositionsList == null) {
             throw new NullPointerException(methodName + ": nanPositionsList is null.");
         }
@@ -2463,6 +2584,12 @@ public enum Descriptor {
         if (!Descriptor.validateSmilesStringArray(moleculeSmilesStringArray, methodName)) {
             Descriptor.LOGGER.log(Level.WARNING, "{0} : Given SMILES string array is empty, calculation aborted.", methodName);
             return true;
+        }
+        for (Descriptor descriptor : descriptors) {
+            if (descriptor.requires3DCoordinates()) {
+                Descriptor.LOGGER.log(Level.WARNING, "{0} : At least one descriptor requires 3D coordinates, which cannot be computed from SMILES strings. Calculation aborted.", methodName);
+                return true;
+            }
         }
         if (nanPositionsList == null) {
             throw new NullPointerException(methodName + ": nanPositionsList is null.");
