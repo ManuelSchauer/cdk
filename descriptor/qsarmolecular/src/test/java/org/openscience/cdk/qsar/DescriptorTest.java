@@ -117,7 +117,6 @@ import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.logging.Level;
 import java.util.stream.IntStream;
 
 //TODO test descriptors for how they handle empty molecules and empty SMILES strings.
@@ -4647,17 +4646,17 @@ class DescriptorTest {
         // Checks
         final String methodName = "setDescriptorsForMoleculesByMoleculeParallelizationNew";
         if (!Descriptor.validateDescriptors(descriptors, methodName)) {
-            Descriptor.LOGGER.log(Level.WARNING, "{0} : Given descriptor array is empty, calculation aborted.", methodName);
+            Descriptor.LOGGER.warn(methodName + " : Given descriptor array is empty, calculation aborted.");
             return true;
         }
         if (!Descriptor.validateAtomContainerArray(atomContainerArray, methodName)) {
-            Descriptor.LOGGER.log(Level.WARNING, "{0} : Given atom container array is empty, calculation aborted.", methodName);
+            Descriptor.LOGGER.warn(methodName + " : Given atom container array is empty, calculation aborted.");
             return true;
         }
         for (Descriptor descriptor : descriptors) {
             if (descriptor.requires3DCoordinates()) {
                 if (!GeometryUtil.has3DCoordinates(atomContainerArray[0])) {
-                    Descriptor.LOGGER.log(Level.WARNING, "{0} : Descriptors require 3D coordinates, but the given molecule does not have 3D coordinates. Calculation aborted.", methodName);
+                    Descriptor.LOGGER.warn(methodName + " : Descriptors require 3D coordinates, but the given molecule does not have 3D coordinates. Calculation aborted.");
                     return true;
                 }
                 break;
@@ -4697,8 +4696,7 @@ class DescriptorTest {
                                 }
                             } catch (Exception exception) {
                                 hasNaN.set(true);
-                                Descriptor.LOGGER.log(
-                                        Level.WARNING,
+                                Descriptor.LOGGER.warn(
                                         String.format("DescriptorTest.setDescriptorsForMoleculesByMoleculeParallelizationNew: One descriptor calculation caused an exception, molecule index: %d.", i),
                                         exception
                                 );
@@ -4713,8 +4711,7 @@ class DescriptorTest {
                         }
                     } catch (Exception exception) {
                         hasNaN.set(true);
-                        Descriptor.LOGGER.log(
-                                Level.WARNING,
+                        Descriptor.LOGGER.warn(
                                 String.format("DescriptorTest.setDescriptorsForMoleculesByMoleculeParallelizationNew: Exception for molecule index: %d", i),
                                 exception
                         );
@@ -4722,8 +4719,7 @@ class DescriptorTest {
                 }
             }
         } catch (Exception exception) {
-            Descriptor.LOGGER.log(
-                    Level.WARNING,
+            Descriptor.LOGGER.warn(
                     "DescriptorTest.setDescriptorsForMoleculesByMoleculeParallelizationNew: Global exception occurred in descriptor calculation: ",
                     exception
             );
@@ -5101,7 +5097,7 @@ class DescriptorTest {
                         for (int i = 0; i < Descriptor.PUBCHEM_FINGERPRINTER.getDescriptorComponentNumber(); i++) {
                             vector[startIndex + i] = Float.NaN;
                         }
-                        Descriptor.LOGGER.log(Level.WARNING, exception.toString(), exception);
+                        Descriptor.LOGGER.warn(exception.toString(), exception);
                     }
                     break;
                 case CIRCULAR_FINGERPRINTER_ECFP_0:
@@ -5114,7 +5110,7 @@ class DescriptorTest {
                         for (int i = 0; i < Descriptor.getCircularFingerprintSize(); i++) {
                             vector[startIndex + i] = Float.NaN;
                         }
-                        Descriptor.LOGGER.log(Level.WARNING, exception.toString(), exception);
+                        Descriptor.LOGGER.warn(exception.toString(), exception);
                     }
                     break;
                 case CIRCULAR_FINGERPRINTER_FCFP_0:
@@ -5127,7 +5123,7 @@ class DescriptorTest {
                         for (int i = 0; i < Descriptor.getCircularFingerprintSize(); i++) {
                             vector[startIndex + i] = Float.NaN;
                         }
-                        Descriptor.LOGGER.log(Level.WARNING, exception.toString(), exception);
+                        Descriptor.LOGGER.warn(exception.toString(), exception);
                     }
                     break;
                 case CIRCULAR_FINGERPRINTER_ECFP_2:
@@ -5140,7 +5136,7 @@ class DescriptorTest {
                         for (int i = 0; i < Descriptor.getCircularFingerprintSize(); i++) {
                             vector[startIndex + i] = Float.NaN;
                         }
-                        Descriptor.LOGGER.log(Level.WARNING, exception.toString(), exception);
+                        Descriptor.LOGGER.warn(exception.toString(), exception);
                     }
                     break;
                 case CIRCULAR_FINGERPRINTER_FCFP_2:
@@ -5153,7 +5149,7 @@ class DescriptorTest {
                         for (int i = 0; i < Descriptor.getCircularFingerprintSize(); i++) {
                             vector[startIndex + i] = Float.NaN;
                         }
-                        Descriptor.LOGGER.log(Level.WARNING, exception.toString(), exception);
+                        Descriptor.LOGGER.warn(exception.toString(), exception);
                     }
                     break;
                 case CIRCULAR_FINGERPRINTER_ECFP_4:
@@ -5166,7 +5162,7 @@ class DescriptorTest {
                         for (int i = 0; i < Descriptor.getCircularFingerprintSize(); i++) {
                             vector[startIndex + i] = Float.NaN;
                         }
-                        Descriptor.LOGGER.log(Level.WARNING, exception.toString(), exception);
+                        Descriptor.LOGGER.warn(exception.toString(), exception);
                     }
                     break;
                 case CIRCULAR_FINGERPRINTER_FCFP_4:
@@ -5179,7 +5175,7 @@ class DescriptorTest {
                         for (int i = 0; i < Descriptor.getCircularFingerprintSize(); i++) {
                             vector[startIndex + i] = Float.NaN;
                         }
-                        Descriptor.LOGGER.log(Level.WARNING, exception.toString(), exception);
+                        Descriptor.LOGGER.warn(exception.toString(), exception);
                     }
                     break;
                 case CIRCULAR_FINGERPRINTER_ECFP_6:
@@ -5192,7 +5188,7 @@ class DescriptorTest {
                         for (int i = 0; i < Descriptor.getCircularFingerprintSize(); i++) {
                             vector[startIndex + i] = Float.NaN;
                         }
-                        Descriptor.LOGGER.log(Level.WARNING, exception.toString(), exception);
+                        Descriptor.LOGGER.warn(exception.toString(), exception);
                     }
                     break;
                 case CIRCULAR_FINGERPRINTER_FCFP_6:
@@ -5205,7 +5201,7 @@ class DescriptorTest {
                         for (int i = 0; i < Descriptor.getCircularFingerprintSize(); i++) {
                             vector[startIndex + i] = Float.NaN;
                         }
-                        Descriptor.LOGGER.log(Level.WARNING, exception.toString(), exception);
+                        Descriptor.LOGGER.warn(exception.toString(), exception);
                     }
                     break;
                 case MACCS_FINGERPRINTER:
@@ -5218,7 +5214,7 @@ class DescriptorTest {
                         for (int i = 0; i < Descriptor.MACCS_FINGERPRINTER.getDescriptorComponentNumber(); i++) {
                             vector[startIndex + i] = Float.NaN;
                         }
-                        Descriptor.LOGGER.log(Level.WARNING, exception.toString(), exception);
+                        Descriptor.LOGGER.warn(exception.toString(), exception);
                     }
                     break;
 
@@ -5275,8 +5271,7 @@ class DescriptorTest {
                     nanPositionsList.add(new int[]{moleculeIndex, startIndex + i});
                 }
             }
-            Descriptor.LOGGER.log(
-                    Level.WARNING,
+            Descriptor.LOGGER.warn(
                     String.format("DescriptorTest.setDescriptorNew: An exception occurred while calculating descriptor %s for molecule index %d.",
                             descriptor,
                             moleculeIndex),

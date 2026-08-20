@@ -101,6 +101,8 @@ import org.openscience.cdk.qsar.result.IntegerArrayResult;
 import org.openscience.cdk.qsar.result.IntegerResult;
 import org.openscience.cdk.silent.SilentChemObjectBuilder;
 import org.openscience.cdk.smiles.SmilesParser;
+import org.openscience.cdk.tools.ILoggingTool;
+import org.openscience.cdk.tools.LoggingToolFactory;
 import org.openscience.cdk.tools.manipulator.AtomContainerManipulator;
 import org.openscience.cdk.tools.manipulator.HydrogenState;
 
@@ -115,8 +117,6 @@ import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import java.util.stream.IntStream;
 
 /**
@@ -1186,17 +1186,17 @@ public enum Descriptor {
                         }
                         success = true;
                     } else {
-                        LOGGER.log(Level.WARNING, () -> "Unexpected result type " + result.getClass().getName() + " for descriptor " + this.name() + ". Expected DoubleResult, IntegerResult, DoubleArrayResult or IntegerArrayResult.");
+                        LOGGER.warn("Unexpected result type ", result.getClass().getName(), " for descriptor ", this.name(), ". Expected DoubleResult, IntegerResult, DoubleArrayResult or IntegerArrayResult.");
                     }
                 } else {
-                    LOGGER.log(Level.WARNING, () -> "Descriptor " + this.name() + " not found in descriptorToCdkObjectMap. This should not happen.");
+                    LOGGER.warn("Descriptor ", this.name(), " not found in descriptorToCdkObjectMap. This should not happen.");
                 }
             }
         } catch (InterruptedException exception) {
-            LOGGER.log(Level.WARNING, exception, () -> "Interrupted while waiting for fingerprinter instance from pool. This should not happen.");
+            LOGGER.warn("Interrupted while waiting for fingerprinter instance from pool. This should not happen.", exception);
             throw exception;
         } catch (Exception exception) {
-            LOGGER.log(Level.SEVERE, exception, () -> "Descriptor " + this.name() + " failed to calculate.");
+            LOGGER.error("Descriptor ", this.name(), " failed to calculate: ", exception.getMessage());
             return false;
         }
         return success;
@@ -1204,9 +1204,8 @@ public enum Descriptor {
 
     /**
      * Logger of this class.
-     * TODO for CDK integration: must be replaced with CDK ILoggingTool instance.
      */
-    static final Logger LOGGER = Logger.getLogger(Descriptor.class.getName());
+    static final ILoggingTool LOGGER = LoggingToolFactory.createLoggingTool(Descriptor.class);
 
     /**
      * SMILES Parser for SMILES String batch processing.
@@ -1517,7 +1516,7 @@ public enum Descriptor {
         BlockingQueue<IFingerprinter> pubchemPool = new LinkedBlockingQueue<>(Descriptor.fingerprintPoolSize);
         for (int i = 0; i < Descriptor.fingerprintPoolSize; i++) {
             if (!pubchemPool.offer(new PubchemFingerprinter(SilentChemObjectBuilder.getInstance()))){
-                LOGGER.log(Level.WARNING, () -> "Failed to add PubchemFingerprinter instance to pool. This should not happen.");
+                LOGGER.warn("Failed to add PubchemFingerprinter instance to pool. This should not happen.");
                 success = false;
             }
         }
@@ -1527,7 +1526,7 @@ public enum Descriptor {
         BlockingQueue<IFingerprinter> ecfp0Pool = new LinkedBlockingQueue<>(Descriptor.fingerprintPoolSize);
         for (int i = 0; i < Descriptor.fingerprintPoolSize; i++) {
             if (!ecfp0Pool.offer(new CircularFingerprinter(CircularFingerprinter.CLASS_ECFP0, Descriptor.circularFingerprintSize))) {
-                LOGGER.log(Level.WARNING, () -> "Failed to add CircularFingerprinter ECFP0 instance to pool. This should not happen.");
+                LOGGER.warn("Failed to add CircularFingerprinter ECFP0 instance to pool. This should not happen.");
                 success = false;
             }
         }
@@ -1537,7 +1536,7 @@ public enum Descriptor {
         BlockingQueue<IFingerprinter> fcfp0Pool = new LinkedBlockingQueue<>(Descriptor.fingerprintPoolSize);
         for (int i = 0; i < Descriptor.fingerprintPoolSize; i++) {
             if (!fcfp0Pool.offer(new CircularFingerprinter(CircularFingerprinter.CLASS_FCFP0, Descriptor.circularFingerprintSize))) {
-                LOGGER.log(Level.WARNING, () -> "Failed to add CircularFingerprinter FCFP0 instance to pool. This should not happen.");
+                LOGGER.warn("Failed to add CircularFingerprinter FCFP0 instance to pool. This should not happen.");
                 success = false;
             }
         }
@@ -1547,7 +1546,7 @@ public enum Descriptor {
         BlockingQueue<IFingerprinter> ecfp2Pool = new LinkedBlockingQueue<>(Descriptor.fingerprintPoolSize);
         for (int i = 0; i < Descriptor.fingerprintPoolSize; i++) {
             if (!ecfp2Pool.offer(new CircularFingerprinter(CircularFingerprinter.CLASS_ECFP2, Descriptor.circularFingerprintSize))) {
-                LOGGER.log(Level.WARNING, () -> "Failed to add CircularFingerprinter ECFP2 instance to pool. This should not happen.");
+                LOGGER.warn("Failed to add CircularFingerprinter ECFP2 instance to pool. This should not happen.");
                 success = false;
             }
         }
@@ -1557,7 +1556,7 @@ public enum Descriptor {
         BlockingQueue<IFingerprinter> fcfp2Pool = new LinkedBlockingQueue<>(Descriptor.fingerprintPoolSize);
         for (int i = 0; i < Descriptor.fingerprintPoolSize; i++) {
             if (!fcfp2Pool.offer(new CircularFingerprinter(CircularFingerprinter.CLASS_FCFP2, Descriptor.circularFingerprintSize))) {
-                LOGGER.log(Level.WARNING, () -> "Failed to add CircularFingerprinter FCFP2 instance to pool. This should not happen.");
+                LOGGER.warn("Failed to add CircularFingerprinter FCFP2 instance to pool. This should not happen.");
                 success = false;
             }
         }
@@ -1567,7 +1566,7 @@ public enum Descriptor {
         BlockingQueue<IFingerprinter> ecfp4Pool = new LinkedBlockingQueue<>(Descriptor.fingerprintPoolSize);
         for (int i = 0; i < Descriptor.fingerprintPoolSize; i++) {
             if (!ecfp4Pool.offer(new CircularFingerprinter(CircularFingerprinter.CLASS_ECFP4, Descriptor.circularFingerprintSize))) {
-                LOGGER.log(Level.WARNING, () -> "Failed to add CircularFingerprinter ECFP4 instance to pool. This should not happen.");
+                LOGGER.warn("Failed to add CircularFingerprinter ECFP4 instance to pool. This should not happen.");
                 success = false;
             }
         }
@@ -1577,7 +1576,7 @@ public enum Descriptor {
         BlockingQueue<IFingerprinter> fcfp4Pool = new LinkedBlockingQueue<>(Descriptor.fingerprintPoolSize);
         for (int i = 0; i < Descriptor.fingerprintPoolSize; i++) {
             if (!fcfp4Pool.offer(new CircularFingerprinter(CircularFingerprinter.CLASS_FCFP4, Descriptor.circularFingerprintSize))) {
-                LOGGER.log(Level.WARNING, () -> "Failed to add CircularFingerprinter FCFP4 instance to pool. This should not happen.");
+                LOGGER.warn("Failed to add CircularFingerprinter FCFP4 instance to pool. This should not happen.");
                 success = false;
             }
         }
@@ -1587,7 +1586,7 @@ public enum Descriptor {
         BlockingQueue<IFingerprinter> ecfp6Pool = new LinkedBlockingQueue<>(Descriptor.fingerprintPoolSize);
         for (int i = 0; i < Descriptor.fingerprintPoolSize; i++) {
             if (!ecfp6Pool.offer(new CircularFingerprinter(CircularFingerprinter.CLASS_ECFP6, Descriptor.circularFingerprintSize))) {
-                LOGGER.log(Level.WARNING, () -> "Failed to add CircularFingerprinter ECFP6 instance to pool. This should not happen.");
+                LOGGER.warn("Failed to add CircularFingerprinter ECFP6 instance to pool. This should not happen.");
                 success = false;
             }
         }
@@ -1597,7 +1596,7 @@ public enum Descriptor {
         BlockingQueue<IFingerprinter> fcfp6Pool = new LinkedBlockingQueue<>(Descriptor.fingerprintPoolSize);
         for (int i = 0; i < Descriptor.fingerprintPoolSize; i++) {
             if (!fcfp6Pool.offer(new CircularFingerprinter(CircularFingerprinter.CLASS_FCFP6, Descriptor.circularFingerprintSize))) {
-                LOGGER.log(Level.WARNING, () -> "Failed to add CircularFingerprinter FCFP6 instance to pool. This should not happen.");
+                LOGGER.warn("Failed to add CircularFingerprinter FCFP6 instance to pool. This should not happen.");
                 success = false;
             }
         }
@@ -1607,7 +1606,7 @@ public enum Descriptor {
         BlockingQueue<IFingerprinter> maccsPool = new LinkedBlockingQueue<>(Descriptor.fingerprintPoolSize);
         for (int i = 0; i < Descriptor.fingerprintPoolSize; i++) {
             if (!maccsPool.offer(new MACCSFingerprinter(SilentChemObjectBuilder.getInstance()))) {
-                LOGGER.log(Level.WARNING, () -> "Failed to add MACCSFingerprinter instance to pool. This should not happen.");
+                LOGGER.warn("Failed to add MACCSFingerprinter instance to pool. This should not happen.");
                 success = false;
             }
         }
@@ -1646,14 +1645,14 @@ public enum Descriptor {
             }
             success = true;
         } catch (CDKException | RuntimeException exception) {
-            LOGGER.log(Level.WARNING, exception, () -> "Failed to calculate: " + this.name());
+            LOGGER.warn("Failed to calculate: " + this.name(), exception);
             return false;
         } finally {
             // Only return the fingerprinter if it was successfully taken from the pool.
             // If take() threw InterruptedException, fingerprinter is still null and offer(null)
             // would throw NullPointerException.
             if (fingerprinter != null && !Descriptor.fingerprintPoolMap.get(this).offer(fingerprinter)){
-                LOGGER.log(Level.WARNING, () -> "Failed to return fingerprinter to pool: " + this.name());
+                LOGGER.warn("Failed to return fingerprinter to pool: " + this.name());
                 success = false;
             }
 
@@ -1879,7 +1878,7 @@ public enum Descriptor {
             Descriptor.initializeFingerprintPools();
             return true;
         } catch (Exception exception){
-            LOGGER.log(Level.SEVERE,exception , () ->"Failed to set fingerprint pool size and reinitialize pools: " + exception.getMessage());
+            LOGGER.error("Failed to set fingerprint pool size and reinitialize pools: ", exception.getMessage());
             return false;
         }
 
@@ -1921,7 +1920,7 @@ public enum Descriptor {
             Descriptor.initializeFingerprintPools();
             return true;
         } catch (Exception exception) {
-            LOGGER.log(Level.SEVERE,exception , () -> "Failed to set circular fingerprint size and reinitialize pools: " + exception.getMessage());
+            LOGGER.error("Failed to set circular fingerprint size and reinitialize pools: ", exception.getMessage());
             return false;
         }
     }
@@ -2005,7 +2004,7 @@ public enum Descriptor {
         if (descriptor.requires3DCoordinates() && !GeometryUtil.has3DCoordinates(molecule)) {
             float[] result = new float[descriptor.getDescriptorComponentNumber()];
             Arrays.fill(result, Float.NaN);
-            Descriptor.LOGGER.log(Level.WARNING, "Descriptor.calculateDescriptor: Descriptor {0} requires 3D coordinates, but the molecule does not have 3D coordinates.", descriptor.getName());
+            Descriptor.LOGGER.warn("Descriptor.calculateDescriptor: Descriptor " + descriptor.getName() + " requires 3D coordinates, but the molecule does not have 3D coordinates.");
             return result;
         }
 
@@ -2024,11 +2023,11 @@ public enum Descriptor {
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             Arrays.fill(result, Float.NaN);
-            Descriptor.LOGGER.log(Level.WARNING,exception , () -> "Interrupted while calculating descriptor " + descriptor.getName());
+            Descriptor.LOGGER.warn("Interrupted while calculating descriptor " + descriptor.getName(), exception);
         } catch (Exception exception) {
             // Fill with NaN on failure and log the error
             Arrays.fill(result, Float.NaN);
-            Descriptor.LOGGER.log(Level.WARNING, String.format("Failed to calculate descriptor %s: %s", descriptor.getName(), exception.getMessage()), exception);
+            Descriptor.LOGGER.warn(String.format("Failed to calculate descriptor %s: %s", descriptor.getName(), exception.getMessage()), exception);
         }
         return result;
     }
@@ -2070,7 +2069,7 @@ public enum Descriptor {
         } catch (Exception exception) {
             float[] result = new float[descriptor.getDescriptorComponentNumber()];
             Arrays.fill(result, Float.NaN);
-            Descriptor.LOGGER.log(Level.WARNING, String.format("Failed to calculate descriptor %s: %s", descriptor.getName(), exception.getMessage()), exception);
+            Descriptor.LOGGER.warn(String.format("Failed to calculate descriptor %s: %s", descriptor.getName(), exception.getMessage()), exception);
             return result;
         }
     }
@@ -2110,7 +2109,7 @@ public enum Descriptor {
         if (descriptor.requires3DCoordinates()) {
             float[] result = new float[descriptor.getDescriptorComponentNumber()];
             Arrays.fill(result, Float.NaN);
-            Descriptor.LOGGER.log(Level.WARNING, "Descriptor.calculateDescriptor: Descriptor {0} requires 3D coordinates, which cannot be computed from a SMILES string.", descriptor.getName());
+            Descriptor.LOGGER.warn("Descriptor.calculateDescriptor: Descriptor " + descriptor.getName() + " requires 3D coordinates, which cannot be computed from a SMILES string.");
             return result;
         }
 
@@ -2121,7 +2120,7 @@ public enum Descriptor {
         } catch (Exception exception) {
             float[] result = new float[descriptor.getDescriptorComponentNumber()];
             Arrays.fill(result, Float.NaN);
-            Descriptor.LOGGER.log(Level.WARNING, String.format("Failed to calculate descriptor %s: %s", descriptor.getName(), exception.getMessage()), exception);
+            Descriptor.LOGGER.warn(String.format("Failed to calculate descriptor %s: %s", descriptor.getName(), exception.getMessage()), exception);
             return result;
         }
     }
@@ -2167,17 +2166,17 @@ public enum Descriptor {
         // Checks
         final String methodName = "setDescriptorsForMoleculesByMoleculeBatchParallelization";
         if (!Descriptor.validateDescriptors(descriptors, methodName)) {
-            Descriptor.LOGGER.log(Level.WARNING, "{0} : Given descriptor array is empty, calculation aborted.", methodName);
+            Descriptor.LOGGER.warn(methodName + " : Given descriptor array is empty, calculation aborted.");
             return true;
         }
         if (!Descriptor.validateAtomContainerArray(atomContainerArray, methodName)) {
-            Descriptor.LOGGER.log(Level.WARNING, "{0} : Given atom container array is empty, calculation aborted.", methodName);
+            Descriptor.LOGGER.warn(methodName + " : Given atom container array is empty, calculation aborted.");
             return true;
         }
         for (Descriptor descriptor : descriptors) {
             if (descriptor.requires3DCoordinates()) {
                 if (atomContainerArray[0] == null || !GeometryUtil.has3DCoordinates(atomContainerArray[0])) {
-                    Descriptor.LOGGER.log(Level.WARNING, "{0} : At least one descriptor requires 3D coordinates, but the first molecule does not have 3D coordinates. Calculation aborted.", methodName);
+                    Descriptor.LOGGER.warn(methodName + " : At least one descriptor requires 3D coordinates, but the first molecule does not have 3D coordinates. Calculation aborted.");
                     return true;
                 }
                 break;
@@ -2227,8 +2226,7 @@ public enum Descriptor {
                             return;
                         } catch (Exception exception) {
                             hasNaN.set(true);
-                            Descriptor.LOGGER.log(
-                                    Level.WARNING,
+                            Descriptor.LOGGER.warn(
                                     String.format("Descriptor.setDescriptorsForMoleculesByBatchParallelization: Exception in batch %d, molecule index: %d", batchIndex, i),
                                     exception
                             );
@@ -2246,8 +2244,7 @@ public enum Descriptor {
                         throw exception;
                     } catch (Exception exception) {
                         hasNaN.set(true);
-                        Descriptor.LOGGER.log(
-                                Level.WARNING,
+                        Descriptor.LOGGER.warn(
                                 String.format("Descriptor.setDescriptorsForMoleculesByBatchParallelization: Exception for molecule index: %d", i),
                                 exception
                         );
@@ -2257,8 +2254,7 @@ public enum Descriptor {
         } catch (InterruptedException exception) {
             throw exception;
         } catch (Exception exception) {
-            Descriptor.LOGGER.log(
-                    Level.WARNING,
+            Descriptor.LOGGER.warn(
                     "Descriptor.setDescriptorsForMoleculesByBatchParallelization: Global exception occurred in descriptor calculation.",
                     exception
             );
@@ -2310,16 +2306,16 @@ public enum Descriptor {
         // Checks
         final String methodName = "setDescriptorsForMoleculeBySmilesStringsBatchParallelization";
         if (!Descriptor.validateDescriptors(descriptors, methodName)) {
-            Descriptor.LOGGER.log(Level.WARNING, "{0} : Given descriptor array is empty, calculation aborted.", methodName);
+            Descriptor.LOGGER.warn(methodName + " : Given descriptor array is empty, calculation aborted.");
             return true;
         }
         if (!Descriptor.validateSmilesStringArray(moleculeSmilesStringArray, methodName)) {
-            Descriptor.LOGGER.log(Level.WARNING, "{0} : Given SMILES string array is empty, calculation aborted.", methodName);
+            Descriptor.LOGGER.warn(methodName + " : Given SMILES string array is empty, calculation aborted.");
             return true;
         }
         for (Descriptor descriptor : descriptors) {
             if (descriptor.requires3DCoordinates()) {
-                Descriptor.LOGGER.log(Level.WARNING, "{0} : At least one descriptor requires 3D coordinates, which cannot be computed from SMILES strings. Calculation aborted.", methodName);
+                Descriptor.LOGGER.warn(methodName + " : At least one descriptor requires 3D coordinates, which cannot be computed from SMILES strings. Calculation aborted.");
                 return true;
             }
         }
@@ -2368,8 +2364,7 @@ public enum Descriptor {
                             return;
                         } catch (Exception exception) {
                             hasNaN.set(true);
-                            Descriptor.LOGGER.log(
-                                    Level.WARNING,
+                            Descriptor.LOGGER.warn(
                                     String.format("Descriptor.setDescriptorsForMoleculeBySmilesStringsBatchParallelization: Exception in batch %d, molecule index: %d", batchIndex, i),
                                     exception
                             );
@@ -2387,8 +2382,7 @@ public enum Descriptor {
                         throw exception;
                     } catch (Exception exception) {
                         hasNaN.set(true);
-                        Descriptor.LOGGER.log(
-                                Level.WARNING,
+                        Descriptor.LOGGER.warn(
                                 String.format("Descriptor.setDescriptorsForMoleculeBySmilesStringsBatchParallelization: Exception for molecule index: %d", i),
                                 exception
                         );
@@ -2398,8 +2392,7 @@ public enum Descriptor {
         } catch (InterruptedException exception) {
             throw exception;
         } catch (Exception exception) {
-            Descriptor.LOGGER.log(
-                    Level.WARNING,
+            Descriptor.LOGGER.warn(
                     "Descriptor.setDescriptorsForMoleculeBySmilesStringsBatchParallelization: Global exception occurred in descriptor calculation.",
                     exception
             );
@@ -2446,17 +2439,17 @@ public enum Descriptor {
         // Checks
         final String methodName = "setDescriptorsForMoleculesByMoleculeParallelization";
         if (!Descriptor.validateDescriptors(descriptors, methodName)) {
-            Descriptor.LOGGER.log(Level.WARNING, "{0} : Given descriptor array is empty, calculation aborted.", methodName);
+            Descriptor.LOGGER.warn(methodName + " : Given descriptor array is empty, calculation aborted.");
             return true;
         }
         if (!Descriptor.validateAtomContainerArray(atomContainerArray, methodName)) {
-            Descriptor.LOGGER.log(Level.WARNING, "{0} : Given atom container array is empty, calculation aborted.", methodName);
+            Descriptor.LOGGER.warn(methodName + " : Given atom container array is empty, calculation aborted.");
             return true;
         }
         for (Descriptor descriptor : descriptors) {
             if (descriptor.requires3DCoordinates()) {
                 if (atomContainerArray[0] == null || !GeometryUtil.has3DCoordinates(atomContainerArray[0])) {
-                    Descriptor.LOGGER.log(Level.WARNING, "{0} : At least one descriptor requires 3D coordinates, but the first molecule does not have 3D coordinates. Calculation aborted.", methodName);
+                    Descriptor.LOGGER.warn(methodName + " : At least one descriptor requires 3D coordinates, but the first molecule does not have 3D coordinates. Calculation aborted.");
                     return true;
                 }
                 break;
@@ -2498,8 +2491,7 @@ public enum Descriptor {
                                 Thread.currentThread().interrupt(); // Preserve interrupt status
                             } catch (Exception exception) {
                                 hasNaN.set(true);
-                                Descriptor.LOGGER.log(
-                                        Level.WARNING,
+                                Descriptor.LOGGER.warn(
                                         String.format("Descriptor.setDescriptorsForMoleculesByMoleculeParallelization: One descriptor calculation caused an exception, molecule index: %d.", i),
                                         exception
                                 );
@@ -2516,8 +2508,7 @@ public enum Descriptor {
                         throw exception;
                     } catch (Exception exception) {
                         hasNaN.set(true);
-                        Descriptor.LOGGER.log(
-                                Level.WARNING,
+                        Descriptor.LOGGER.warn(
                                 String.format("Descriptor.setDescriptorsForMoleculesByMoleculeParallelization: Exception for molecule index: %d", i),
                                 exception
                         );
@@ -2527,8 +2518,7 @@ public enum Descriptor {
         } catch (InterruptedException exception) {
             throw exception;
         } catch (Exception exception) {
-            Descriptor.LOGGER.log(
-                    Level.WARNING,
+            Descriptor.LOGGER.warn(
                     "Descriptor.setDescriptorsForMoleculesByMoleculeParallelization: Global exception occurred in descriptor calculation: ",
                     exception
             );
@@ -2578,16 +2568,16 @@ public enum Descriptor {
         // Checks
         final String methodName = "setDescriptorsForMoleculesBySmilesStringParallelization";
         if (!Descriptor.validateDescriptors(descriptors, methodName)) {
-            Descriptor.LOGGER.log(Level.WARNING, "{0} : Given descriptor array is empty, calculation aborted.", methodName);
+            Descriptor.LOGGER.warn(methodName + " : Given descriptor array is empty, calculation aborted.");
             return true;
         }
         if (!Descriptor.validateSmilesStringArray(moleculeSmilesStringArray, methodName)) {
-            Descriptor.LOGGER.log(Level.WARNING, "{0} : Given SMILES string array is empty, calculation aborted.", methodName);
+            Descriptor.LOGGER.warn(methodName + " : Given SMILES string array is empty, calculation aborted.");
             return true;
         }
         for (Descriptor descriptor : descriptors) {
             if (descriptor.requires3DCoordinates()) {
-                Descriptor.LOGGER.log(Level.WARNING, "{0} : At least one descriptor requires 3D coordinates, which cannot be computed from SMILES strings. Calculation aborted.", methodName);
+                Descriptor.LOGGER.warn(methodName + " : At least one descriptor requires 3D coordinates, which cannot be computed from SMILES strings. Calculation aborted.");
                 return true;
             }
         }
@@ -2628,8 +2618,7 @@ public enum Descriptor {
                                 Thread.currentThread().interrupt(); // Preserve interrupt status
                             } catch (Exception exception) {
                                 hasNaN.set(true);
-                                Descriptor.LOGGER.log(
-                                        Level.WARNING,
+                                Descriptor.LOGGER.warn(
                                         String.format("Descriptor.setDescriptorsForMoleculesBySmilesStringParallelization: Exception in molecule index: %d", i),
                                         exception
                                 );
@@ -2647,8 +2636,7 @@ public enum Descriptor {
                         throw exception;
                     } catch (Exception exception) {
                         hasNaN.set(true);
-                        Descriptor.LOGGER.log(
-                                Level.WARNING,
+                        Descriptor.LOGGER.warn(
                                 String.format("Descriptor.setDescriptorsForMoleculesBySmilesStringParallelization: Exception for molecule index: %d", i),
                                 exception
                         );
@@ -2658,8 +2646,7 @@ public enum Descriptor {
         } catch (InterruptedException exception) {
             throw exception;
         } catch (Exception exception) {
-            Descriptor.LOGGER.log(
-                    Level.WARNING,
+            Descriptor.LOGGER.warn(
                     "Descriptor.setDescriptorsForMoleculesBySmilesStringParallelization: Global exception occurred in descriptor calculation.",
                     exception
             );
@@ -2816,8 +2803,7 @@ public enum Descriptor {
                     nanPositionsList.add(new int[]{moleculeIndex, startIndex + i});
                 }
             }
-            Descriptor.LOGGER.log(
-                    Level.WARNING,
+            Descriptor.LOGGER.warn(
                     String.format("Descriptor.setDescriptor: An exception occurred while calculating descriptor %s for molecule index %d.",
                             descriptor,
                             moleculeIndex),
