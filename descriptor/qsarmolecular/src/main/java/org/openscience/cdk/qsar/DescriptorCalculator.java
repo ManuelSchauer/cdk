@@ -298,23 +298,27 @@ public final class DescriptorCalculator {
      * EnumMap that maps a descriptor enum constant to an instance of its associated CDK descriptor class.
      */
     private static final EnumMap<Descriptor, IMolecularDescriptor> descriptorToCdkObjectMap = new EnumMap<>(Descriptor.class);
+
     /**
      * EnumMap that maps a fingerprint descriptor to its pool of IFingerprinter instances.
      * Pool size is configurable via {@link #setFingerprintPoolSize(int)} method.
      * Uses BlockingQueue to ensure thread-safe access to fingerprinter instances.
      */
     private static final EnumMap<Descriptor, BlockingQueue<IFingerprinter>> fingerprintPoolMap = new EnumMap<>(Descriptor.class);
+
     /**
      * Pool size for fingerprinter instances. Default value is 4 which should be sufficient for regular users.
      * Can be changed via the synchronized {@link #setFingerprintPoolSize(int)} method. Note that the variable
      * itself is not thread-safe!
      */
     private static volatile int fingerprintPoolSize = 4;
+
     /**
      * Size used for all circular fingerprint "descriptors". Default value is 1024.
      * Can be changed via the synchronized {@link #setCircularFingerprintSize(int)} method.
      */
     private static volatile int circularFingerprintSize = Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE;
+
     /*
      * Static initializer block to populate the descriptorToCdkObjectMap and initialize the fingerprint pool.
      * Note: We use the map and initialize it here (instead of giving each descriptor constant an instance field)
