@@ -178,7 +178,7 @@ public enum Descriptor {
      *
      * @see AtomCountDescriptor
      */
-    ATOM_COUNT_HEAVY(true, true, false, false, false, 1, "Atom Count"),
+    ATOM_COUNT_HEAVY(true, true, false, false, false, 1, "Atom Count Heavy"),
     /**
      * Atom count C, counts the number of all carbon atoms separately in the given molecule.
      *
