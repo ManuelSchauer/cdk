@@ -1,26 +1,23 @@
 /*
- * CDK-Descriptor-Calculation
  * Copyright (C) 2026 Manuel Schauer, Jonas Schaub, Christoph Steinbeck, and Achim Zielesny
  *
- * Source code is available at <https://github.com/JonasSchaub/CDK-Descriptor-Calculation>
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public License
+ * as published by the Free Software Foundation; either version 2.1
+ * of the License, or (at your option) any later version.
+ * All we ask is that proper credit is given for our work, which includes
+ * - but is not limited to - adding the above copyright notice to the beginning
+ * of your source code files, and to any copyright notice that you may distribute
+ * with programs based on this work.
  *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
  *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
 package org.openscience.cdk.qsar;
@@ -112,6 +109,7 @@ import java.io.InputStream;
 
 import javax.vecmath.Point2d;
 import javax.vecmath.Point3d;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Collections;
@@ -5256,5 +5254,86 @@ class DescriptorCalculatorTest {
         Assertions.assertTrue(DescriptorCalculator.setDescriptorsForMoleculeBySmilesStringsBatchParallelization(
                 validDescriptors, emptySmiles, matrix, 0, 1, ElectronDonation.daylight(), false, nanPositions
         ));
+    }
+
+    /**
+     * Tests that NaN positions are tracked in any (non-synchronized) list, also in parallel mode, and are added
+     * sorted by molecule index and component index, including the start index offset.
+     *
+     * @throws Exception if anything goes wrong
+     */
+    @Test
+    void test_NaNPositions_PlainListSortedWithStartIndex() throws Exception {
+        // HYBRIDIZATION_RATIO is NaN for "[Na+].[Cl-]" and "[Xe]"
+        String[] pattern = new String[]{"CCO", "[Na+].[Cl-]", "CC", "[Xe]"};
+        String[] smiles = new String[200];
+        for (int i = 0; i < smiles.length; i++) {
+            smiles[i] = pattern[i % pattern.length];
+        }
+        Descriptor[] descriptors = new Descriptor[]{Descriptor.MOLECULAR_WEIGHT, Descriptor.HYBRIDIZATION_RATIO};
+        int startIndex = 1;
+        int nanColumn = startIndex + Descriptor.MOLECULAR_WEIGHT.getDescriptorComponentNumber();
+        List<int[]> expected = new ArrayList<>();
+        for (int i = 0; i < smiles.length; i++) {
+            if (i % 2 == 1) {
+                expected.add(new int[]{i, nanColumn});
+            }
+        }
+        for (boolean isParallel : new boolean[]{false, true}) {
+            float[][] matrix = new float[smiles.length][startIndex + Descriptor.getNumberOfComponents(descriptors)];
+            List<int[]> nanPositions = new ArrayList<>();
+            boolean success = DescriptorCalculator.setDescriptorsForMoleculesBySmilesStringParallelization(
+                    descriptors, smiles, matrix, startIndex, null, isParallel, nanPositions);
+            Assertions.assertFalse(success, "NaN values expected (parallel=" + isParallel + ")");
+            Assertions.assertEquals(expected.size(), nanPositions.size(), "parallel=" + isParallel);
+            for (int i = 0; i < expected.size(); i++) {
+                Assertions.assertArrayEquals(expected.get(i), nanPositions.get(i), "position " + i + ", parallel=" + isParallel);
+                Assertions.assertTrue(Float.isNaN(matrix[expected.get(i)[0]][expected.get(i)[1]]));
+            }
+        }
+    }
+
+    /**
+     * Tests that the calculation recipe of every descriptor matches its type, i.e. fingerprints are calculated with a
+     * pool of fingerprinters and all other descriptors with a CDK molecular descriptor.
+     */
+    @Test
+    void test_CalculationFactoryMatchesDescriptorType() {
+        for (Descriptor descriptor : Descriptor.values()) {
+            DescriptorCalculation calculation = descriptor.getCalculationFactory().create(1, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE);
+            Assertions.assertEquals(descriptor.isFingerprint(), calculation instanceof FingerprintCalculation, descriptor.name());
+            Assertions.assertEquals(!descriptor.isFingerprint(), calculation instanceof MolecularCalculation, descriptor.name());
+        }
+    }
+
+    /**
+     * Tests that the 3D precondition is checked for all molecules, not only for the first one: if any molecule lacks
+     * 3D coordinates, the calculation is aborted (current behaviour: true is returned and the matrix is not changed).
+     *
+     * @throws Exception if anything goes wrong
+     */
+    @Test
+    void test_3DPrecondition_CheckedForAllMolecules() throws Exception {
+        SmilesParser smilesParser = new SmilesParser(SilentChemObjectBuilder.getInstance());
+        IAtomContainer with3D = smilesParser.parseSmiles("CC");
+        with3D.getAtom(0).setPoint3d(new Point3d(0.0, 0.0, 0.0));
+        with3D.getAtom(1).setPoint3d(new Point3d(1.54, 0.0, 0.0));
+        IAtomContainer without3D = smilesParser.parseSmiles("CC");
+        IAtomContainer[] molecules = new IAtomContainer[]{with3D, with3D, without3D};
+        Descriptor[] descriptors = new Descriptor[]{Descriptor.MOLECULAR_WEIGHT, Descriptor.MOMENT_OF_INERTIA};
+
+        float[][] matrix = new float[molecules.length][Descriptor.getNumberOfComponents(descriptors)];
+        List<int[]> nanPositions = new ArrayList<>();
+        Assertions.assertTrue(DescriptorCalculator.setDescriptorsForMoleculesByMoleculeParallelization(
+                descriptors, molecules, matrix, 0, true, nanPositions));
+        float[][] batchMatrix = new float[molecules.length][Descriptor.getNumberOfComponents(descriptors)];
+        Assertions.assertTrue(DescriptorCalculator.setDescriptorsForMoleculesByBatchParallelization(
+                descriptors, molecules, batchMatrix, 0, 2, true, nanPositions));
+
+        Assertions.assertTrue(nanPositions.isEmpty());
+        for (int i = 0; i < molecules.length; i++) {
+            Assertions.assertArrayEquals(new float[matrix[i].length], matrix[i], "calculation must not have started");
+            Assertions.assertArrayEquals(new float[batchMatrix[i].length], batchMatrix[i], "calculation must not have started");
+        }
     }
 }
