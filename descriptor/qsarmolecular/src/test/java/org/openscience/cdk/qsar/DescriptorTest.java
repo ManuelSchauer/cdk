@@ -25,6 +25,8 @@ package org.openscience.cdk.qsar;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.EnumMap;
+
 /**
  * Test class for the {@link Descriptor} enum, i.e. the descriptor metadata and the static query methods of
  * the descriptor catalog. The calculation of descriptor values is tested in {@link DescriptorCalculatorTest}.
@@ -39,8 +41,6 @@ class DescriptorTest {
      *
      * @throws Exception if anything goes wrong
      */
-
-    //TODO:Initialisierung testen
     @Test
     void test_getDescriptorAndComponentIndexAndInfo() throws Exception {
         Descriptor[] descriptors = new Descriptor[]{Descriptor.MOLECULAR_WEIGHT, Descriptor.BCUT, Descriptor.WIENER_NUMBER};
@@ -125,6 +125,55 @@ class DescriptorTest {
                     || descriptor == Descriptor.LENGTH_OVER_BREADTH
                     || descriptor == Descriptor.PETITJEAN_SHAPE_INDEX;
             Assertions.assertEquals(is3D, descriptor.requires3DCoordinates(), "Mismatch for " + descriptor);
+        }
+    }
+
+    /**
+     * Tests the initialization of all enum constants, so that an incorrectly implemented new enum constant is
+     * detected immediately:
+     * <ul>
+     *     <li>every descriptor has a non-empty name, at least one component and a calculation recipe (factory);</li>
+     *     <li>the calculation of every descriptor can be created from its recipe in the same way as
+     *         DescriptorCalculator.createCalculations() does it, i.e. the CDK descriptor or fingerprinter can be
+     *         instantiated and configured (e.g. valid parameters) without an exception;</li>
+     *     <li>the number of fingerprints and their sizes are as expected.</li>
+     * </ul>
+     */
+    @Test
+    void test_Initialization() {
+        Assertions.assertEquals(Descriptor.values().length, Descriptor.getAllDescriptors().length);
+        int numberOfFingerprints = 0;
+        for (Descriptor descriptor : Descriptor.values()) {
+            Assertions.assertNotNull(descriptor.getName(), descriptor.name());
+            Assertions.assertFalse(descriptor.getName().trim().isEmpty(), descriptor.name());
+            Assertions.assertTrue(descriptor.getDescriptorComponentNumber() > 0, descriptor.name());
+            Assertions.assertNotNull(descriptor.getCalculationFactory(), descriptor.name());
+            if (descriptor.isFingerprint()) {
+                numberOfFingerprints++;
+            }
+        }
+
+        // create all calculations in the same way as DescriptorCalculator.createCalculations(); fixed values are used
+        // instead of the configuration of DescriptorCalculator, so that its static initialization (which creates all
+        // calculations, too) does not fail first and the message names the incorrect enum constant
+        EnumMap<Descriptor, DescriptorCalculation> calculations = new EnumMap<>(Descriptor.class);
+        for (Descriptor descriptor : Descriptor.values()) {
+            DescriptorCalculation calculation = Assertions.assertDoesNotThrow(
+                    () -> descriptor.getCalculationFactory().create(1, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE),
+                    "Calculation of " + descriptor.name() + " cannot be created from its recipe");
+            Assertions.assertNotNull(calculation, descriptor.name());
+            calculations.put(descriptor, calculation);
+        }
+        Assertions.assertEquals(Descriptor.values().length, calculations.size());
+
+        Assertions.assertEquals(10, numberOfFingerprints);
+        Assertions.assertEquals(881, Descriptor.PUBCHEM_FINGERPRINTER.getDescriptorComponentNumber());
+        Assertions.assertEquals(166, Descriptor.MACCS_FINGERPRINTER.getDescriptorComponentNumber());
+        for (Descriptor descriptor : Descriptor.values()) {
+            if (descriptor.name().startsWith("CIRCULAR_FINGERPRINTER_")) {
+                Assertions.assertEquals(DescriptorCalculator.getCircularFingerprintSize(),
+                        descriptor.getDescriptorComponentNumber(), descriptor.name());
+            }
         }
     }
 }
