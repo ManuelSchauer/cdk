@@ -23,19 +23,28 @@ package org.openscience.cdk.qsar;
 
 import org.openscience.cdk.exception.CDKException;
 import org.openscience.cdk.fingerprint.IBitFingerprint;
+import org.openscience.cdk.fingerprint.ICountFingerprint;
 import org.openscience.cdk.fingerprint.IFingerprinter;
 import org.openscience.cdk.interfaces.IAtomContainer;
 import org.openscience.cdk.tools.ILoggingTool;
 import org.openscience.cdk.tools.LoggingToolFactory;
 
+import java.util.Arrays;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.function.IntFunction;
+import java.util.function.Supplier;
 
 /**
  * Calculation of a CDK fingerprint. Fingerprinter instances are not thread-safe, so this calculation owns a pool of
  * fingerprinter instances: every calculation takes one instance from the pool and returns it to the same pool
  * afterwards.
+ * <p>
+ * The fingerprint is written as bit fingerprint (1.0f for a set bit, 0.0f otherwise) or, for circular fingerprints, as
+ * folded count fingerprint: the count fingerprint of the CDK is not folded (it enumerates hash codes and their counts),
+ * so every hash code is folded into the fingerprint size in exactly the same way as
+ * {@code CircularFingerprinter.getBitFingerprint()} does it, and the counts of all hash codes folded into the same
+ * position are added up. Therefore, a component of the folded count fingerprint is greater than 0 if and only if the
+ * corresponding bit of the bit fingerprint is set.
  *
  * @author Manuel Schauer
  * @author Jonas Schaub
@@ -54,17 +63,46 @@ final class FingerprintCalculation implements DescriptorCalculation {
     private final BlockingQueue<IFingerprinter> pool;
 
     /**
+     * True: the fingerprint is written as folded count fingerprint; false: as bit fingerprint.
+     */
+    private final boolean isCounts;
+
+    /**
      * Constructor, creates and fills the pool of fingerprinter instances.
      *
-     * @param fingerprinterFactory    creates a fingerprinter instance; the argument is the circular fingerprint size
-     * @param poolSize                number of fingerprinter instances in the pool (must be greater than 0)
-     * @param circularFingerprintSize size of circular fingerprints, passed to the fingerprinter factory
+     * @param fingerprinterFactory creates a (configured) fingerprinter instance
+     * @param poolSize             number of fingerprinter instances in the pool (must be greater than 0)
+     * @param isCounts             true: the fingerprint is written as folded count fingerprint (only for circular
+     *                             fingerprints, see the class documentation); false: as bit fingerprint
      */
-    FingerprintCalculation(IntFunction<IFingerprinter> fingerprinterFactory, int poolSize, int circularFingerprintSize) {
+    FingerprintCalculation(Supplier<IFingerprinter> fingerprinterFactory, int poolSize, boolean isCounts) {
         this.pool = new LinkedBlockingQueue<>(poolSize);
         for (int i = 0; i < poolSize; i++) {
-            this.pool.add(fingerprinterFactory.apply(circularFingerprintSize));
+            this.pool.add(fingerprinterFactory.get());
         }
+        this.isCounts = isCounts;
+    }
+
+    /**
+     * Returns whether the fingerprint is written as folded count fingerprint.
+     *
+     * @return true: folded count fingerprint; false: bit fingerprint
+     */
+    boolean isCounts() {
+        return this.isCounts;
+    }
+
+    /**
+     * Folds a hash code of a circular fingerprint into a fingerprint of the given size, in exactly the same way as
+     * {@code CircularFingerprinter.getBitFingerprint()} does it (the hash code is interpreted as unsigned 32-bit value).
+     *
+     * @param hashCode the hash code
+     * @param size     the fingerprint size
+     * @return the position in the folded fingerprint, between 0 and size - 1
+     */
+    static int fold(int hashCode, int size) {
+        long unsignedHashCode = hashCode >= 0 ? hashCode : ((hashCode & 0x7FFFFFFF) | (1L << 31));
+        return (int) (unsignedHashCode % size);
     }
 
     /**
@@ -79,9 +117,18 @@ final class FingerprintCalculation implements DescriptorCalculation {
         // take() blocks until a fingerprinter is available; InterruptedException propagates to the caller
         IFingerprinter fingerprinter = this.pool.take();
         try {
-            IBitFingerprint bitFingerprint = fingerprinter.getBitFingerprint(atomContainer);
-            for (int i = 0; i < descriptor.getDescriptorComponentNumber(); i++) {
-                vector[startIndex + i] = bitFingerprint.get(i) ? 1.0f : 0.0f;
+            int size = descriptor.getDescriptorComponentNumber();
+            if (this.isCounts) {
+                ICountFingerprint countFingerprint = fingerprinter.getCountFingerprint(atomContainer);
+                Arrays.fill(vector, startIndex, startIndex + size, 0.0f);
+                for (int i = 0; i < countFingerprint.numOfPopulatedbins(); i++) {
+                    vector[startIndex + FingerprintCalculation.fold(countFingerprint.getHash(i), size)] += countFingerprint.getCount(i);
+                }
+            } else {
+                IBitFingerprint bitFingerprint = fingerprinter.getBitFingerprint(atomContainer);
+                for (int i = 0; i < size; i++) {
+                    vector[startIndex + i] = bitFingerprint.get(i) ? 1.0f : 0.0f;
+                }
             }
             return true;
         } catch (CDKException | RuntimeException exception) {
