@@ -135,7 +135,8 @@ class DescriptorTest {
      *     <li>every descriptor has a non-empty name, at least one component and a calculation recipe (factory);</li>
      *     <li>the calculation of every descriptor can be created from its recipe in the same way as
      *         DescriptorCalculator.createCalculations() does it, i.e. the CDK descriptor or fingerprinter can be
-     *         instantiated and configured (e.g. valid parameters) without an exception;</li>
+     *         instantiated and configured (e.g. valid parameters) without an exception, both for bit and for count
+     *         circular fingerprints;</li>
      *     <li>the number of fingerprints and their sizes are as expected.</li>
      * </ul>
      */
@@ -156,15 +157,20 @@ class DescriptorTest {
         // create all calculations in the same way as DescriptorCalculator.createCalculations(); fixed values are used
         // instead of the configuration of DescriptorCalculator, so that its static initialization (which creates all
         // calculations, too) does not fail first and the message names the incorrect enum constant
-        EnumMap<Descriptor, DescriptorCalculation> calculations = new EnumMap<>(Descriptor.class);
-        for (Descriptor descriptor : Descriptor.values()) {
-            DescriptorCalculation calculation = Assertions.assertDoesNotThrow(
-                    () -> descriptor.getCalculationFactory().create(1, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE),
-                    "Calculation of " + descriptor.name() + " cannot be created from its recipe");
-            Assertions.assertNotNull(calculation, descriptor.name());
-            calculations.put(descriptor, calculation);
+        // (both for bit and for count circular fingerprints)
+        for (boolean isCircularFingerprintCounts : new boolean[]{false, true}) {
+            CalculationSettings settings = new CalculationSettings(1, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, isCircularFingerprintCounts);
+            EnumMap<Descriptor, DescriptorCalculation> calculations = new EnumMap<>(Descriptor.class);
+            for (Descriptor descriptor : Descriptor.values()) {
+                DescriptorCalculation calculation = Assertions.assertDoesNotThrow(
+                        () -> descriptor.getCalculationFactory().create(settings),
+                        "Calculation of " + descriptor.name() + " cannot be created from its recipe (counts="
+                                + isCircularFingerprintCounts + ")");
+                Assertions.assertNotNull(calculation, descriptor.name());
+                calculations.put(descriptor, calculation);
+            }
+            Assertions.assertEquals(Descriptor.values().length, calculations.size());
         }
-        Assertions.assertEquals(Descriptor.values().length, calculations.size());
 
         Assertions.assertEquals(10, numberOfFingerprints);
         Assertions.assertEquals(881, Descriptor.PUBCHEM_FINGERPRINTER.getDescriptorComponentNumber());

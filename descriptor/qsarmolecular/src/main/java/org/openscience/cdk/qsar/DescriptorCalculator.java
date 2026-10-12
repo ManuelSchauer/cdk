@@ -123,7 +123,10 @@ import java.util.stream.IntStream;
  *     {@link #setAromaticity(IAtomContainer, ElectronDonation)}).
  *     <br><br>
  *     All four methods share the same result convention: they return {@code true} if every descriptor value was
- *     computed without producing {@link Float#NaN}, and {@code false} if at least one NaN was encountered. NaN
+ *     computed without producing {@link Float#NaN}, and {@code false} if at least one NaN was encountered or if the
+ *     calculation was aborted before it started, i.e. if the given descriptor or molecule array is empty or a
+ *     descriptor requires 3D coordinates that are not available (always the case for SMILES input); in the latter
+ *     cases, the matrix is not changed. NaN
  *     positions are additionally recorded in the caller-supplied {@code nanPositionsList} list as
  *     {@code int[]{moleculeIndex, componentIndex}} pairs, sorted by molecule index and component index. Any
  *     modifiable list can be used, also for parallel executions.
@@ -149,7 +152,7 @@ import java.util.stream.IntStream;
  *
  * // B: String preprocessing
  * // 1: Create a String array of SMILES codes
- * String[] moleculeSmilesStrings = new String[] {"CCO", "CCC(O)O", ...}
+ * String[] moleculeSmilesStrings = new String[] {"CCO", "CCC(O)O"};
  *
  * // Define parameters
  * // 1: Define descriptor array
@@ -158,8 +161,8 @@ import java.util.stream.IntStream;
  *     Descriptor.TPSA,
  *     Descriptor.A_LOG_P
  * };
- * // or use a method to get specific descriptors:
- * Descriptor[] descriptors = Descriptor.getSpecifiedDescriptors(false, false, false, false); // e.g., user-defined selection
+ * // or use a method to get specific descriptors instead, e.g.:
+ * // Descriptor[] descriptors = Descriptor.getSpecifiedDescriptors(false, false, false, false);
  *
  * // 2. Determine total number of components needed (because some descriptors return multiple values, it is not equal to the number of descriptors)
  * int componentCount = Descriptor.getNumberOfComponents(descriptors);
@@ -169,6 +172,7 @@ import java.util.stream.IntStream;
  *
  * // 4. Create data matrix for results with appropriate size (molecules as rows, descriptors as columns)
  * float[][] matrix = new float[moleculeCount][componentCount];
+ * float[][] smilesMatrix = new float[moleculeSmilesStrings.length][componentCount]; // for SMILES input
  *
  * // 5. Set startIndex to 0 for filling the matrix with descriptor values starting at the 0th column
  * int startIndex = 0; // if the matrix is part of a larger data structure, set startIndex accordingly
@@ -176,8 +180,8 @@ import java.util.stream.IntStream;
  * // 6. Choose whether to use parallel calculation
  * boolean isParallelCalculation = true; // false for sequential calculation
  *
- * // 7. Create a synchronized List for keeping track of NaN positions
- * List<int[]> nanPositionsListSynchronized = Collections.synchronizedList(new LinkedList<>());
+ * // 7. Create a list for keeping track of NaN positions (any modifiable list, also for parallel calculations)
+ * List<int[]> nanPositions = new ArrayList<>();
  *
  * // For Batch Processing:
  * // Define batch size
@@ -190,25 +194,26 @@ import java.util.stream.IntStream;
  * // Calculate descriptors (choose one of the following methods)
  *
  * // Option A: High-Performance-Parallel Descriptor Calculation with IAtomContainer array
- * boolean result = DescriptorCalculator.setDescriptorsForMoleculesByMoleculeParallelization(
+ * boolean isSuccessful = DescriptorCalculator.setDescriptorsForMoleculesByMoleculeParallelization(
  *                      descriptors,
  *                      molecules,
  *                      matrix,
  *                      startIndex,
  *                      isParallelCalculation,
- *                      nanPositionsListSynchronized
+ *                      nanPositions
  * );
+ * // isSuccessful is false if at least one NaN was produced (see nanPositions) or the calculation was aborted
  * // you can also use DescriptorCalculator.setDescriptorsForMoleculesByBatchParallelization(...) -> batchSize needs to be specified accordingly
  *
  * // Option B: High-Performance-Parallel Descriptor Calculation with SMILES string array
- * boolean result = DescriptorCalculator.setDescriptorsForMoleculesBySmilesStringParallelization(
+ * boolean isSuccessfulSmiles = DescriptorCalculator.setDescriptorsForMoleculesBySmilesStringParallelization(
  *                      descriptors,
  *                      moleculeSmilesStrings,
- *                      matrix,
+ *                      smilesMatrix,
  *                      startIndex,
  *                      electronDonationModel,
  *                      isParallelCalculation,
- *                      nanPositionsListSynchronized
+ *                      nanPositions
  * );
  * // you can also use DescriptorCalculator.setDescriptorsForMoleculeBySmilesStringsBatchParallelization(...) -> batchSize needs to be specified accordingly
  * }</pre>
@@ -216,7 +221,6 @@ import java.util.stream.IntStream;
  * @author Manuel Schauer
  * @author Jonas Schaub
  * @author Achim Zielesny
- * @version 1.0.0
  */
 public final class DescriptorCalculator {
     /**
@@ -243,12 +247,19 @@ public final class DescriptorCalculator {
     private static volatile int circularFingerprintSize = Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE;
 
     /**
+     * True: circular fingerprints are calculated as folded count fingerprints; false (default): as bit fingerprints.
+     * Can be changed via the synchronized {@link #setCircularFingerprintCounts(boolean)} method.
+     */
+    private static volatile boolean isCircularFingerprintCounts = false;
+
+    /**
      * EnumMap that maps every descriptor enum constant to its calculation, created from the descriptor's
-     * {@link DescriptorCalculationFactory} with the current fingerprint pool size and circular fingerprint size.
-     * Note: This field must be declared after fingerprintPoolSize and circularFingerprintSize, because it is
-     * initialized with their values. The map is never modified; when the configuration changes, a new map is
-     * created and assigned as a whole (see {@link #setFingerprintPoolSize(int)} and
-     * {@link #setCircularFingerprintSize(int)}).
+     * {@link DescriptorCalculationFactory} with the current configuration (fingerprint pool size, circular
+     * fingerprint size and circular fingerprint counts).
+     * Note: This field must be declared after the configuration fields, because it is initialized with their values.
+     * The map is never modified; when the configuration changes, a new map is created and assigned as a whole (see
+     * {@link #setFingerprintPoolSize(int)}, {@link #setCircularFingerprintSize(int)} and
+     * {@link #setCircularFingerprintCounts(boolean)}).
      */
     private static volatile EnumMap<Descriptor, DescriptorCalculation> calculations = DescriptorCalculator.createCalculations();
 
@@ -293,17 +304,18 @@ public final class DescriptorCalculator {
 
     /**
      * Creates the calculations of all descriptors from their {@link DescriptorCalculationFactory} with the current
-     * fingerprint pool size and circular fingerprint size.
+     * configuration (fingerprint pool size, circular fingerprint size and circular fingerprint counts).
      *
      * @return a new map with the calculation of every descriptor
      * @throws UnsupportedOperationException if a calculation cannot be created, which should never happen
      */
     private static EnumMap<Descriptor, DescriptorCalculation> createCalculations() {
         try {
+            CalculationSettings settings = new CalculationSettings(DescriptorCalculator.fingerprintPoolSize,
+                    DescriptorCalculator.circularFingerprintSize, DescriptorCalculator.isCircularFingerprintCounts);
             EnumMap<Descriptor, DescriptorCalculation> newCalculations = new EnumMap<>(Descriptor.class);
             for (Descriptor descriptor : Descriptor.values()) {
-                newCalculations.put(descriptor, descriptor.getCalculationFactory().create(
-                        DescriptorCalculator.fingerprintPoolSize, DescriptorCalculator.circularFingerprintSize));
+                newCalculations.put(descriptor, descriptor.getCalculationFactory().create(settings));
             }
             return newCalculations;
         } catch (Exception exception) {
@@ -312,7 +324,7 @@ public final class DescriptorCalculator {
     }
 
     /**
-     * Sets the pool size for fingerprinter instances and reinitialized all fingerprint pools.
+     * Sets the pool size for fingerprinter instances and reinitializes all fingerprint pools.
      * The default pool size is 4, which should be sufficient for regular users.
      * Increasing the pool size can improve performance in highly parallel environments
      * but will increase memory usage.
@@ -320,8 +332,10 @@ public final class DescriptorCalculator {
      * This method is thread-safe and will block until all pools are reinitialized.
      * Any fingerprinter instances currently in use will be returned to the old pools
      * and will eventually be garbage collected.
+     * Note: This method must not be called while a calculation is running; configure before calculating.
      *
      * @param aPoolSize The new pool size for fingerprinter instances (must be greater than 0)
+     * @return true if successful, false otherwise
      * @throws IllegalArgumentException if aPoolSize is less than or equal to 0
      */
     public static synchronized boolean setFingerprintPoolSize(int aPoolSize) throws IllegalArgumentException {
@@ -353,6 +367,8 @@ public final class DescriptorCalculator {
      * This method is thread-safe and will block until all pools are reinitialized.
      * Any fingerprinter instances currently in use will be returned to the old pools
      * and will eventually be garbage collected.
+     * Note: This method must not be called while a calculation is running (the number of components of the
+     * circular fingerprints changes); configure before calculating.
      *
      * @param aSize The new size for circular fingerprints (must be greater than 0)
      * @return true if successful, false otherwise
@@ -380,6 +396,46 @@ public final class DescriptorCalculator {
      */
     public static synchronized int getCircularFingerprintSize() {
         return DescriptorCalculator.circularFingerprintSize;
+    }
+
+    /**
+     * Sets whether all circular fingerprint "descriptors" (CIRCULAR_FINGERPRINTER_*) are calculated as folded count
+     * fingerprints instead of bit fingerprints (default) and reinitializes the calculations.
+     * <p>
+     * The count fingerprint of the CDK CircularFingerprinter is not folded, it enumerates hash codes and their counts.
+     * To obtain a fixed number of components (the circular fingerprint size, see
+     * {@link #setCircularFingerprintSize(int)}), every hash code is folded in exactly the same way as for the bit
+     * fingerprint, and the counts of all hash codes folded into the same component are added up. Therefore, a
+     * component of the folded count fingerprint is greater than 0 if and only if the corresponding bit of the bit
+     * fingerprint is set, and the number of components does not change. Note: In count mode, the components of
+     * circular fingerprints are counts (0, 1, 2, ...) instead of 0 or 1, although {@link Descriptor#isFingerprint()}
+     * is still true for them. PubChem and MACCS fingerprints are always bit fingerprints.
+     * <p>
+     * This method is thread-safe; it must not be called while a calculation is running (configure before
+     * calculating).
+     *
+     * @param isCounts true: circular fingerprints are calculated as folded count fingerprints; false: as bit
+     *                 fingerprints (default)
+     * @return true if successful, false otherwise
+     */
+    public static synchronized boolean setCircularFingerprintCounts(boolean isCounts) {
+        try {
+            DescriptorCalculator.isCircularFingerprintCounts = isCounts;
+            DescriptorCalculator.calculations = DescriptorCalculator.createCalculations();
+            return true;
+        } catch (Exception exception) {
+            LOGGER.error("Failed to set circular fingerprint counts and reinitialize the calculations: ", exception.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Returns whether circular fingerprints are calculated as folded count fingerprints.
+     *
+     * @return true: folded count fingerprints; false: bit fingerprints (default)
+     */
+    public static synchronized boolean isCircularFingerprintCounts() {
+        return DescriptorCalculator.isCircularFingerprintCounts;
     }
 
 
@@ -595,7 +651,9 @@ public final class DescriptorCalculator {
      *                      (MAY BE CHANGED); any modifiable list can be used, also for parallel calculations. The
      *                      positions are added after the calculation, sorted by molecule index and component index.
      * @return True: Operation was successful, no NaN values generated; false: Operation failed, i.e. at least one component in a descriptor
-     *         calculation is NaN or a global exception occurred
+     *         calculation is NaN, a global exception occurred, or the calculation was aborted before it started
+     *         because the given descriptor or molecule array is empty or a descriptor requires 3D coordinates that are
+     *         not available (in this case, the matrix is not changed)
      * @throws IllegalArgumentException if the matrix dimensions are invalid or if batch size is &lt;= 0
      * @throws InterruptedException if the current thread is interrupted during sequential fingerprint
      *                              calculation; in parallel mode, interruption is handled internally
@@ -615,19 +673,18 @@ public final class DescriptorCalculator {
         final String methodName = "setDescriptorsForMoleculesByBatchParallelization";
         if (!DescriptorCalculator.validateDescriptors(descriptors, methodName)) {
             DescriptorCalculator.LOGGER.warn(methodName + " : Given descriptor array is empty, calculation aborted.");
-            return true;
-            //TODO: false
+            return false;
         }
         if (!DescriptorCalculator.validateAtomContainerArray(atomContainerArray, methodName)) {
             DescriptorCalculator.LOGGER.warn(methodName + " : Given atom container array is empty, calculation aborted.");
-            return true;
+            return false;
         }
         for (Descriptor descriptor : descriptors) {
             if (descriptor.requires3DCoordinates()) {
                 for (int i = 0; i < atomContainerArray.length; i++) {
                     if (!GeometryUtil.has3DCoordinates(atomContainerArray[i])) {
                         DescriptorCalculator.LOGGER.warn(methodName + " : At least one descriptor requires 3D coordinates, but molecule " + i + " does not have 3D coordinates. Calculation aborted.");
-                        return true;
+                        return false;
                     }
                 }
                 break;
@@ -742,7 +799,9 @@ public final class DescriptorCalculator {
      *                      (MAY BE CHANGED); any modifiable list can be used, also for parallel calculations. The
      *                      positions are added after the calculation, sorted by molecule index and component index.
      * @return True: Operation was successful, no NaN values generated; false: Operation failed, i.e. at least one component in a descriptor
-     *         calculation is NaN or a global exception occurred
+     *         calculation is NaN, a global exception occurred, or the calculation was aborted before it started
+     *         because the given descriptor or molecule array is empty or a descriptor requires 3D coordinates that are
+     *         not available (in this case, the matrix is not changed)
      * @throws IllegalArgumentException if the matrix dimensions are invalid or if batch size is &lt;= 0
      * @throws InterruptedException if the current thread is interrupted during sequential fingerprint
      *                              calculation; in parallel mode, interruption is handled internally
@@ -763,16 +822,16 @@ public final class DescriptorCalculator {
         final String methodName = "setDescriptorsForMoleculeBySmilesStringsBatchParallelization";
         if (!DescriptorCalculator.validateDescriptors(descriptors, methodName)) {
             DescriptorCalculator.LOGGER.warn(methodName + " : Given descriptor array is empty, calculation aborted.");
-            return true;
+            return false;
         }
         if (!DescriptorCalculator.validateSmilesStringArray(moleculeSmilesStringArray, methodName)) {
             DescriptorCalculator.LOGGER.warn(methodName + " : Given SMILES string array is empty, calculation aborted.");
-            return true;
+            return false;
         }
         for (Descriptor descriptor : descriptors) {
             if (descriptor.requires3DCoordinates()) {
                 DescriptorCalculator.LOGGER.warn(methodName + " : At least one descriptor requires 3D coordinates, which cannot be computed from SMILES strings. Calculation aborted.");
-                return true;
+                return false;
             }
         }
         if (nanPositionsList == null) {
@@ -882,7 +941,9 @@ public final class DescriptorCalculator {
      *                      (MAY BE CHANGED); any modifiable list can be used, also for parallel calculations. The
      *                      positions are added after the calculation, sorted by molecule index and component index.
      * @return True: Operation was successful, no NaN values generated; false: Operation failed, i.e. at least one component in a descriptor
-     *         calculation is NaN or a global exception occurred
+     *         calculation is NaN, a global exception occurred, or the calculation was aborted before it started
+     *         because the given descriptor or molecule array is empty or a descriptor requires 3D coordinates that are
+     *         not available (in this case, the matrix is not changed)
      * @throws IllegalArgumentException if the matrix dimensions are invalid
      * @throws InterruptedException if the current thread is interrupted during sequential fingerprint
      *                              calculation; in parallel mode, interruption is handled internally
@@ -901,18 +962,18 @@ public final class DescriptorCalculator {
         final String methodName = "setDescriptorsForMoleculesByMoleculeParallelization";
         if (!DescriptorCalculator.validateDescriptors(descriptors, methodName)) {
             DescriptorCalculator.LOGGER.warn(methodName + " : Given descriptor array is empty, calculation aborted.");
-            return true;
+            return false;
         }
         if (!DescriptorCalculator.validateAtomContainerArray(atomContainerArray, methodName)) {
             DescriptorCalculator.LOGGER.warn(methodName + " : Given atom container array is empty, calculation aborted.");
-            return true;
+            return false;
         }
         for (Descriptor descriptor : descriptors) {
             if (descriptor.requires3DCoordinates()) {
                 for (int i = 0; i < atomContainerArray.length; i++) {
                     if (!GeometryUtil.has3DCoordinates(atomContainerArray[i])) {
                         DescriptorCalculator.LOGGER.warn(methodName + " : At least one descriptor requires 3D coordinates, but molecule " + i + " does not have 3D coordinates. Calculation aborted.");
-                        return true;
+                        return false;
                     }
                 }
                 break;
@@ -1017,7 +1078,9 @@ public final class DescriptorCalculator {
      *                      (MAY BE CHANGED); any modifiable list can be used, also for parallel calculations. The
      *                      positions are added after the calculation, sorted by molecule index and component index.
      * @return True: Operation was successful, no NaN values generated; false: Operation failed, i.e. at least one component in a descriptor
-     *         calculation is NaN or a global exception occurred
+     *         calculation is NaN, a global exception occurred, or the calculation was aborted before it started
+     *         because the given descriptor or molecule array is empty or a descriptor requires 3D coordinates that are
+     *         not available (in this case, the matrix is not changed)
      * @throws IllegalArgumentException if the matrix dimensions are invalid
      * @throws InterruptedException if the current thread is interrupted during sequential fingerprint
      *                              calculation; in parallel mode, interruption is handled internally
@@ -1037,16 +1100,16 @@ public final class DescriptorCalculator {
         final String methodName = "setDescriptorsForMoleculesBySmilesStringParallelization";
         if (!DescriptorCalculator.validateDescriptors(descriptors, methodName)) {
             DescriptorCalculator.LOGGER.warn(methodName + " : Given descriptor array is empty, calculation aborted.");
-            return true;
+            return false;
         }
         if (!DescriptorCalculator.validateSmilesStringArray(moleculeSmilesStringArray, methodName)) {
             DescriptorCalculator.LOGGER.warn(methodName + " : Given SMILES string array is empty, calculation aborted.");
-            return true;
+            return false;
         }
         for (Descriptor descriptor : descriptors) {
             if (descriptor.requires3DCoordinates()) {
                 DescriptorCalculator.LOGGER.warn(methodName + " : At least one descriptor requires 3D coordinates, which cannot be computed from SMILES strings. Calculation aborted.");
-                return true;
+                return false;
             }
         }
         if (nanPositionsList == null) {

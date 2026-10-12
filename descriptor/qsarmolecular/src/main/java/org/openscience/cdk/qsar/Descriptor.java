@@ -84,7 +84,7 @@ import org.openscience.cdk.silent.SilentChemObjectBuilder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.function.IntFunction;
+import java.util.function.Supplier;
 
 /**
  * Catalog of the CDK descriptors and fingerprints that can be calculated with the {@link DescriptorCalculator}.
@@ -106,7 +106,9 @@ import java.util.function.IntFunction;
  *             fingerprint bit vector rather than a set of numerical descriptor values. Fingerprint
  *             descriptors (e.g., {@link #PUBCHEM_FINGERPRINTER}, {@link #MACCS_FINGERPRINTER},
  *             all {@code CIRCULAR_FINGERPRINTER_*} variants) are handled via a thread-safe pool of
- *             {@link IFingerprinter} instances internally.
+ *             {@link IFingerprinter} instances internally. By default, fingerprints are calculated as bit
+ *             fingerprints (components 0 or 1); circular fingerprints can be calculated as folded count fingerprints
+ *             instead, see {@link DescriptorCalculator#setCircularFingerprintCounts(boolean)}.
  *             Use {@link #isFingerprint()} to query this field.</li>
  *         <li><b>needsExplicitHydrogens</b> ({@code boolean}) – whether this descriptor requires
  *             explicit hydrogen atoms to be present in the molecule before calculation.
@@ -136,13 +138,13 @@ import java.util.function.IntFunction;
  * @author Manuel Schauer
  * @author Jonas Schaub
  * @author Achim Zielesny
- * @version 1.0.0
  */
 public enum Descriptor {
     /*
      * Note for developers: for adding a new descriptor,
      * 1. add the enum constant here, at "Add new descriptor information here!", including the recipe for its
-     *    calculation, i.e. molecular(...) for a CDK molecular descriptor or fingerprint(...) for a CDK fingerprinter,
+     *    calculation, i.e. molecular(...) for a CDK molecular descriptor, fingerprint(...) for a CDK fingerprinter or
+     *    circular(...) for a CDK circular fingerprint,
      * 2. add tests in the test class DescriptorCalculatorTest, at "Add new descriptor tests here!" and
      *    "Add new descriptor information here!".
      */
@@ -785,70 +787,70 @@ public enum Descriptor {
      * @see PubchemFingerprinter
      */
     PUBCHEM_FINGERPRINTER(false, true, true, false, false, 881, "PubChem Fingerprinter",
-            fingerprint(size -> new PubchemFingerprinter(SilentChemObjectBuilder.getInstance()))),
+            fingerprint(() -> new PubchemFingerprinter(SilentChemObjectBuilder.getInstance()))),
     /**
      * Circular fingerprinter, generates an extended-connectivity fingerprint with a path diameter of 0.
      *
      * @see CircularFingerprinter
      */
     CIRCULAR_FINGERPRINTER_ECFP_0(true, true, true, false, false, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, "Circular Fingerprinter ECFP-0",
-            fingerprint(size -> new CircularFingerprinter(CircularFingerprinter.CLASS_ECFP0, size))),
+            circular(CircularFingerprinter.CLASS_ECFP0)),
     /**
      * Circular fingerprinter, generates a functional class version of an extended-connectivity fingerprint with a path diameter of 0.
      *
      * @see CircularFingerprinter
      */
     CIRCULAR_FINGERPRINTER_FCFP_0(true, true, true, false, false, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, "Circular Fingerprinter FCFP-0",
-            fingerprint(size -> new CircularFingerprinter(CircularFingerprinter.CLASS_FCFP0, size))),
+            circular(CircularFingerprinter.CLASS_FCFP0)),
     /**
      * Circular fingerprinter, generates an extended-connectivity fingerprint with a path diameter of 2.
      *
      * @see CircularFingerprinter
      */
     CIRCULAR_FINGERPRINTER_ECFP_2(true, true, true, false, false, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, "Circular Fingerprinter ECFP-2",
-            fingerprint(size -> new CircularFingerprinter(CircularFingerprinter.CLASS_ECFP2, size))),
+            circular(CircularFingerprinter.CLASS_ECFP2)),
     /**
      * Circular fingerprinter, generates a functional class version of an extended-connectivity fingerprint with a path diameter of 2.
      *
      * @see CircularFingerprinter
      */
     CIRCULAR_FINGERPRINTER_FCFP_2(true, true, true, false, false, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, "Circular Fingerprinter FCFP-2",
-            fingerprint(size -> new CircularFingerprinter(CircularFingerprinter.CLASS_FCFP2, size))),
+            circular(CircularFingerprinter.CLASS_FCFP2)),
     /**
      * Circular fingerprinter, generates an extended-connectivity fingerprint with a path diameter of 4.
      *
      * @see CircularFingerprinter
      */
     CIRCULAR_FINGERPRINTER_ECFP_4(true, true, true, false, false, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, "Circular Fingerprinter ECFP-4",
-            fingerprint(size -> new CircularFingerprinter(CircularFingerprinter.CLASS_ECFP4, size))),
+            circular(CircularFingerprinter.CLASS_ECFP4)),
     /**
      * Circular fingerprinter, generates a functional class version of an extended-connectivity fingerprint with a path diameter of 4.
      *
      * @see CircularFingerprinter
      */
     CIRCULAR_FINGERPRINTER_FCFP_4(true, true, true, false, false, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, "Circular Fingerprinter FCFP-4",
-            fingerprint(size -> new CircularFingerprinter(CircularFingerprinter.CLASS_FCFP4, size))),
+            circular(CircularFingerprinter.CLASS_FCFP4)),
     /**
      * Circular fingerprinter, generates an extended-connectivity fingerprint with a path diameter of 6.
      *
      * @see CircularFingerprinter
      */
     CIRCULAR_FINGERPRINTER_ECFP_6(true, true, true, false, false, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, "Circular Fingerprinter ECFP-6",
-            fingerprint(size -> new CircularFingerprinter(CircularFingerprinter.CLASS_ECFP6, size))),
+            circular(CircularFingerprinter.CLASS_ECFP6)),
     /**
      * Circular fingerprinter, generates a functional class version of an extended-connectivity fingerprint with a path diameter of 6.
      *
      * @see CircularFingerprinter
      */
     CIRCULAR_FINGERPRINTER_FCFP_6(true, true, true, false, false, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, "Circular Fingerprinter FCFP-6",
-            fingerprint(size -> new CircularFingerprinter(CircularFingerprinter.CLASS_FCFP6, size))),
+            circular(CircularFingerprinter.CLASS_FCFP6)),
     /**
      * MACCS fingerprinter, generates a 166-bit binary fingerprint based on the MACCS structural keys.
      *
      * @see MACCSFingerprinter
      */
     MACCS_FINGERPRINTER(true, true, true, false, false, 166, "MACCS Fingerprinter",
-            fingerprint(size -> new MACCSFingerprinter(SilentChemObjectBuilder.getInstance()))),
+            fingerprint(() -> new MACCSFingerprinter(SilentChemObjectBuilder.getInstance()))),
     /**
      * Charged Partial Surface Area (CPSA) descriptor, calculates 29 surface and charge descriptors.
      *
@@ -1062,7 +1064,7 @@ public enum Descriptor {
      * @return the calculation factory
      */
     private static DescriptorCalculationFactory molecular(CdkDescriptorSupplier cdkDescriptorSupplier) {
-        return (fingerprintPoolSize, circularFingerprintSize) -> {
+        return settings -> {
             try {
                 return new MolecularCalculation(cdkDescriptorSupplier.get());
             } catch (CDKException exception) {
@@ -1072,16 +1074,29 @@ public enum Descriptor {
     }
 
     /**
-     * Returns the recipe for a CDK fingerprinter: a pool of fingerprinter instances, because fingerprinters are not
-     * thread-safe.
+     * Returns the recipe for a CDK fingerprinter (bit fingerprint): a pool of fingerprinter instances, because
+     * fingerprinters are not thread-safe.
      *
-     * @param fingerprinterFactory creates a fingerprinter instance; the argument is the circular fingerprint size,
-     *                             which is ignored by all fingerprinters except the circular ones
+     * @param fingerprinterFactory creates a fingerprinter instance
      * @return the calculation factory
      */
-    private static DescriptorCalculationFactory fingerprint(IntFunction<IFingerprinter> fingerprinterFactory) {
-        return (fingerprintPoolSize, circularFingerprintSize) ->
-                new FingerprintCalculation(fingerprinterFactory, fingerprintPoolSize, circularFingerprintSize);
+    private static DescriptorCalculationFactory fingerprint(Supplier<IFingerprinter> fingerprinterFactory) {
+        return settings -> new FingerprintCalculation(fingerprinterFactory, settings.getFingerprintPoolSize(), false);
+    }
+
+    /**
+     * Returns the recipe for a CDK circular fingerprint: a pool of CircularFingerprinter instances with the
+     * configured circular fingerprint size, calculated as bit or folded count fingerprint depending on the
+     * configuration (see {@link DescriptorCalculator#setCircularFingerprintCounts(boolean)}).
+     *
+     * @param circularFingerprinterClass the class of the circular fingerprint, e.g. CircularFingerprinter.CLASS_ECFP4
+     * @return the calculation factory
+     */
+    private static DescriptorCalculationFactory circular(int circularFingerprinterClass) {
+        return settings -> new FingerprintCalculation(
+                () -> new CircularFingerprinter(circularFingerprinterClass, settings.getCircularFingerprintSize()),
+                settings.getFingerprintPoolSize(),
+                settings.isCircularFingerprintCounts());
     }
 
     /**
