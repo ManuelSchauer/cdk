@@ -1,32 +1,31 @@
 /*
- * CDK-Descriptor-Calculation
  * Copyright (C) 2026 Manuel Schauer, Jonas Schaub, Christoph Steinbeck, and Achim Zielesny
  *
- * Source code is available at <https://github.com/JonasSchaub/CDK-Descriptor-Calculation>
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public License
+ * as published by the Free Software Foundation; either version 2.1
+ * of the License, or (at your option) any later version.
+ * All we ask is that proper credit is given for our work, which includes
+ * - but is not limited to - adding the above copyright notice to the beginning
+ * of your source code files, and to any copyright notice that you may distribute
+ * with programs based on this work.
  *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
  *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
 package org.openscience.cdk.qsar;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.EnumMap;
 
 /**
  * Test class for the {@link Descriptor} enum, i.e. the descriptor metadata and the static query methods of
@@ -126,6 +125,61 @@ class DescriptorTest {
                     || descriptor == Descriptor.LENGTH_OVER_BREADTH
                     || descriptor == Descriptor.PETITJEAN_SHAPE_INDEX;
             Assertions.assertEquals(is3D, descriptor.requires3DCoordinates(), "Mismatch for " + descriptor);
+        }
+    }
+
+    /**
+     * Tests the initialization of all enum constants, so that an incorrectly implemented new enum constant is
+     * detected immediately:
+     * <ul>
+     *     <li>every descriptor has a non-empty name, at least one component and a calculation recipe (factory);</li>
+     *     <li>the calculation of every descriptor can be created from its recipe in the same way as
+     *         DescriptorCalculator.createCalculations() does it, i.e. the CDK descriptor or fingerprinter can be
+     *         instantiated and configured (e.g. valid parameters) without an exception, both for bit and for count
+     *         circular fingerprints;</li>
+     *     <li>the number of fingerprints and their sizes are as expected.</li>
+     * </ul>
+     */
+    @Test
+    void test_Initialization() {
+        Assertions.assertEquals(Descriptor.values().length, Descriptor.getAllDescriptors().length);
+        int numberOfFingerprints = 0;
+        for (Descriptor descriptor : Descriptor.values()) {
+            Assertions.assertNotNull(descriptor.getName(), descriptor.name());
+            Assertions.assertFalse(descriptor.getName().trim().isEmpty(), descriptor.name());
+            Assertions.assertTrue(descriptor.getDescriptorComponentNumber() > 0, descriptor.name());
+            Assertions.assertNotNull(descriptor.getCalculationFactory(), descriptor.name());
+            if (descriptor.isFingerprint()) {
+                numberOfFingerprints++;
+            }
+        }
+
+        // create all calculations in the same way as DescriptorCalculator.createCalculations(); fixed values are used
+        // instead of the configuration of DescriptorCalculator, so that its static initialization (which creates all
+        // calculations, too) does not fail first and the message names the incorrect enum constant
+        // (both for bit and for count circular fingerprints)
+        for (boolean isCircularFingerprintCounts : new boolean[]{false, true}) {
+            CalculationSettings settings = new CalculationSettings(1, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, isCircularFingerprintCounts);
+            EnumMap<Descriptor, DescriptorCalculation> calculations = new EnumMap<>(Descriptor.class);
+            for (Descriptor descriptor : Descriptor.values()) {
+                DescriptorCalculation calculation = Assertions.assertDoesNotThrow(
+                        () -> descriptor.getCalculationFactory().create(settings),
+                        "Calculation of " + descriptor.name() + " cannot be created from its recipe (counts="
+                                + isCircularFingerprintCounts + ")");
+                Assertions.assertNotNull(calculation, descriptor.name());
+                calculations.put(descriptor, calculation);
+            }
+            Assertions.assertEquals(Descriptor.values().length, calculations.size());
+        }
+
+        Assertions.assertEquals(10, numberOfFingerprints);
+        Assertions.assertEquals(881, Descriptor.PUBCHEM_FINGERPRINTER.getDescriptorComponentNumber());
+        Assertions.assertEquals(166, Descriptor.MACCS_FINGERPRINTER.getDescriptorComponentNumber());
+        for (Descriptor descriptor : Descriptor.values()) {
+            if (descriptor.name().startsWith("CIRCULAR_FINGERPRINTER_")) {
+                Assertions.assertEquals(DescriptorCalculator.getCircularFingerprintSize(),
+                        descriptor.getDescriptorComponentNumber(), descriptor.name());
+            }
         }
     }
 }

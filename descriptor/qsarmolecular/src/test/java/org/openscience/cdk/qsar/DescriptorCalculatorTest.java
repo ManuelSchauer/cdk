@@ -1,26 +1,23 @@
 /*
- * CDK-Descriptor-Calculation
  * Copyright (C) 2026 Manuel Schauer, Jonas Schaub, Christoph Steinbeck, and Achim Zielesny
  *
- * Source code is available at <https://github.com/JonasSchaub/CDK-Descriptor-Calculation>
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public License
+ * as published by the Free Software Foundation; either version 2.1
+ * of the License, or (at your option) any later version.
+ * All we ask is that proper credit is given for our work, which includes
+ * - but is not limited to - adding the above copyright notice to the beginning
+ * of your source code files, and to any copyright notice that you may distribute
+ * with programs based on this work.
  *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to deal
- * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
  *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
- * SOFTWARE.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
 package org.openscience.cdk.qsar;
@@ -33,6 +30,7 @@ import org.openscience.cdk.aromaticity.Aromaticity;
 import org.openscience.cdk.aromaticity.ElectronDonation;
 import org.openscience.cdk.fingerprint.CircularFingerprinter;
 import org.openscience.cdk.fingerprint.IBitFingerprint;
+import org.openscience.cdk.fingerprint.ICountFingerprint;
 import org.openscience.cdk.fingerprint.MACCSFingerprinter;
 import org.openscience.cdk.fingerprint.PubchemFingerprinter;
 import org.openscience.cdk.interfaces.IAtom;
@@ -112,6 +110,7 @@ import java.io.InputStream;
 
 import javax.vecmath.Point2d;
 import javax.vecmath.Point3d;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Collections;
@@ -124,6 +123,13 @@ import java.util.stream.IntStream;
  * Test class for DescriptorCalculator class. This class first tests all the descriptors included in the {@link Descriptor} class
  * individually, i.e. whether they produce the expected results for some example molecules (in most cases taken from the
  * respective CDK descriptor test class) in different parallelization settings.
+ * <p>
+ * Note on the scope of these tests: they check that the engine calculates the CDK descriptors and fingerprints
+ * correctly, i.e. that its results are equal to reference values from the CDK descriptor tests or, where no reference
+ * values exist (e.g. autocorrelation descriptors, most circular fingerprints), to the results of the CDK classes
+ * calculated directly, without the engine. They do NOT test whether the descriptors themselves are scientifically
+ * correct; this is the responsibility of the respective CDK descriptor and fingerprint tests.
+ * <p>
  * Note: For adding tests of a new descriptor goto "Add new descriptor tests here!"
  *
  * @author Achim Zielesny
@@ -1972,6 +1978,14 @@ class DescriptorCalculatorTest {
 
     /**
      * Test method for descriptor AUTOCORRELATION_CHARGE.
+     * <p>
+     * There are no validated reference values for this descriptor. Therefore, the results of the engine (and of the
+     * reference implementation of this test class) are additionally compared with the result of the CDK class
+     * {@link AutocorrelationDescriptorCharge} calculated directly, i.e. without the engine.
+     * <p>
+     * Note: This test checks that the engine calculates the descriptor correctly (correct CDK class and parameters,
+     * correct conversion of the result and correct position in the data matrix), NOT that the descriptor itself is
+     * scientifically correct; the latter is the responsibility of the respective CDK descriptor tests.
      *
      * @throws Exception if anything goes wrong
      */
@@ -1981,6 +1995,8 @@ class DescriptorCalculatorTest {
         SmilesParser smilesParser = new SmilesParser(SilentChemObjectBuilder.getInstance());
         IAtomContainer molecule = smilesParser.parseSmiles(smiles);
         IAtomContainer[] moleculesArray = new IAtomContainer[]{molecule};
+        // reference: the CDK descriptor calculated directly, without the engine (it works on a copy of the molecule)
+        float[] expected = DescriptorCalculatorTest.toFloatArray((DoubleArrayResult) new AutocorrelationDescriptorCharge().calculate(molecule).getValue());
         int startIndex = 0;
         Descriptor[] descriptors = new Descriptor[]{Descriptor.AUTOCORRELATION_CHARGE};
         boolean isParallelCalculation = false;
@@ -1999,7 +2015,7 @@ class DescriptorCalculatorTest {
                         nanPositions
                 )
         );
-        //TODO: I know, this is taken like that from the CDK tests; but could we maybe test for the actual values instead of != 0?
+        Assertions.assertArrayEquals(expected, matrix[0], "reference implementation must equal the direct CDK calculation");
         Assertions.assertNotEquals(0f, matrix[0][0]);
         Assertions.assertNotEquals(0f, matrix[0][1]);
         Assertions.assertNotEquals(0f, matrix[0][2]);
@@ -2018,6 +2034,7 @@ class DescriptorCalculatorTest {
                         nanPositions
                 )
         );
+        Assertions.assertArrayEquals(expected, matrix[0], "engine must equal the direct CDK calculation");
         Assertions.assertNotEquals(0f, matrix[0][0]);
         Assertions.assertNotEquals(0f, matrix[0][1]);
         Assertions.assertNotEquals(0f, matrix[0][2]);
@@ -2027,6 +2044,14 @@ class DescriptorCalculatorTest {
 
     /**
      * Test method for descriptor AUTOCORRELATION_MASS.
+     * <p>
+     * There are no validated reference values for this descriptor. Therefore, the results of the engine (and of the
+     * reference implementation of this test class) are additionally compared with the result of the CDK class
+     * {@link AutocorrelationDescriptorMass} calculated directly, i.e. without the engine.
+     * <p>
+     * Note: This test checks that the engine calculates the descriptor correctly (correct CDK class and parameters,
+     * correct conversion of the result and correct position in the data matrix), NOT that the descriptor itself is
+     * scientifically correct; the latter is the responsibility of the respective CDK descriptor tests.
      *
      * @throws Exception if anything goes wrong
      */
@@ -2036,6 +2061,8 @@ class DescriptorCalculatorTest {
         SmilesParser smilesParser = new SmilesParser(SilentChemObjectBuilder.getInstance());
         IAtomContainer molecule = smilesParser.parseSmiles(smiles);
         IAtomContainer[] moleculesArray = new IAtomContainer[]{molecule};
+        // reference: the CDK descriptor calculated directly, without the engine (it works on a copy of the molecule)
+        float[] expected = DescriptorCalculatorTest.toFloatArray((DoubleArrayResult) new AutocorrelationDescriptorMass().calculate(molecule).getValue());
         int startIndex = 0;
         Descriptor[] descriptors = new Descriptor[]{Descriptor.AUTOCORRELATION_MASS};
         boolean isParallelCalculation = false;
@@ -2054,7 +2081,7 @@ class DescriptorCalculatorTest {
                         nanPositions
                 )
         );
-        //TODO see above
+        Assertions.assertArrayEquals(expected, matrix[0], "reference implementation must equal the direct CDK calculation");
         Assertions.assertNotEquals(0f, matrix[0][0]);
         Assertions.assertNotEquals(0f, matrix[0][1]);
         Assertions.assertNotEquals(0f, matrix[0][2]);
@@ -2073,6 +2100,7 @@ class DescriptorCalculatorTest {
                         nanPositions
                 )
         );
+        Assertions.assertArrayEquals(expected, matrix[0], "engine must equal the direct CDK calculation");
         Assertions.assertNotEquals(0f, matrix[0][0]);
         Assertions.assertNotEquals(0f, matrix[0][1]);
         Assertions.assertNotEquals(0f, matrix[0][2]);
@@ -2082,8 +2110,14 @@ class DescriptorCalculatorTest {
 
     /**
      * Test method for descriptor AUTOCORRELATION_POLARIZABILITY.
-     * No validated result because the descriptor itself is not validated in the CDK.
-     * Result can be printed to see if descriptor calculates values.
+     * <p>
+     * There are no validated reference values for this descriptor. Therefore, the results of the engine (and of the
+     * reference implementation of this test class) are additionally compared with the result of the CDK class
+     * {@link AutocorrelationDescriptorPolarizability} calculated directly, i.e. without the engine.
+     * <p>
+     * Note: This test checks that the engine calculates the descriptor correctly (correct CDK class and parameters,
+     * correct conversion of the result and correct position in the data matrix), NOT that the descriptor itself is
+     * scientifically correct; the latter is the responsibility of the respective CDK descriptor tests.
      *
      * @throws Exception if anything goes wrong
      */
@@ -2093,6 +2127,8 @@ class DescriptorCalculatorTest {
         SmilesParser smilesParser = new SmilesParser(SilentChemObjectBuilder.getInstance());
         IAtomContainer molecule = smilesParser.parseSmiles(smiles);
         IAtomContainer[] moleculesArray = new IAtomContainer[]{molecule};
+        // reference: the CDK descriptor calculated directly, without the engine (it works on a copy of the molecule)
+        float[] expected = DescriptorCalculatorTest.toFloatArray((DoubleArrayResult) new AutocorrelationDescriptorPolarizability().calculate(molecule).getValue());
         int startIndex = 0;
         Descriptor[] descriptors = new Descriptor[]{Descriptor.AUTOCORRELATION_POLARIZABILITY};
         boolean isParallelCalculation = false;
@@ -2111,9 +2147,7 @@ class DescriptorCalculatorTest {
                         nanPositions
                 )
         );
-        //TODO: we need to find a better solution for this, there should be no print-outs; maybe there are example values in the original publication?
-        System.out.println("New calculation results:");
-        System.out.println(Arrays.toString(matrix[0]));
+        Assertions.assertArrayEquals(expected, matrix[0], "reference implementation must equal the direct CDK calculation");
 
         matrix = new float[moleculesArray.length][Descriptor.getNumberOfComponents(descriptors)];
         nanPositions = Collections.synchronizedList(new LinkedList<>());
@@ -2127,8 +2161,7 @@ class DescriptorCalculatorTest {
                         nanPositions
                 )
         );
-        System.out.println("Descriptor parallelization results:");
-        System.out.println(Arrays.toString(matrix[0]));
+        Assertions.assertArrayEquals(expected, matrix[0], "engine must equal the direct CDK calculation");
     }
 
     /**
@@ -3011,167 +3044,133 @@ class DescriptorCalculatorTest {
 
     /**
      * Test method for descriptor MACCS_FINGERPRINTER.
+     * <p>
+     * Reference values: the CDK test class MACCSFingerprinterTest has no complete reference fingerprint, only single
+     * reference bits, which are tested here: 1,2-diphenylethane sets bit 124 but not bit 165, ethylbenzene does not set
+     * bit 124, and "CCC.CCC" (two fragments) sets bit 165. In addition, all 166 bits are compared with the fingerprint
+     * calculated directly with the CDK class {@link MACCSFingerprinter}, i.e. without the engine.
+     * <p>
+     * Note: This test checks that the engine calculates the descriptor correctly (correct CDK class and parameters,
+     * correct conversion of the result and correct position in the data matrix), NOT that the descriptor itself is
+     * scientifically correct; the latter is the responsibility of the respective CDK descriptor tests.
      *
      * @throws Exception if anything goes wrong
      */
     @Test
     void test_MACCS_FINGERPRINTER() throws Exception {
-        //1,2-Diphenylethane CID: 7647
-        String smiles = "c1ccccc1CCc1ccccc1";
+        String[] smilesArray = new String[]{
+                "c1ccccc1CCc1ccccc1", // 1,2-Diphenylethane CID: 7647
+                "c1ccccc1CC", // Ethylbenzene CID: 7500
+                "CCC.CCC" // two propane fragments
+        };
         SmilesParser smilesParser = new SmilesParser(SilentChemObjectBuilder.getInstance());
-        IAtomContainer molecule = smilesParser.parseSmiles(smiles);
-        DescriptorCalculator.setAromaticity(molecule, Aromaticity.Model.Daylight);
-        IAtomContainer[] moleculesArray = new IAtomContainer[]{molecule};
-        int startIndex = 0;
+        IAtomContainer[] moleculesArray = new IAtomContainer[smilesArray.length];
+        float[][] expected = new float[smilesArray.length][];
+        for (int i = 0; i < smilesArray.length; i++) {
+            moleculesArray[i] = smilesParser.parseSmiles(smilesArray[i]);
+            DescriptorCalculator.setAromaticity(moleculesArray[i], Aromaticity.Model.Daylight);
+            // reference: the fingerprint calculated directly with the CDK class, without the engine
+            expected[i] = DescriptorCalculatorTest.toFloatArray(
+                    new MACCSFingerprinter(SilentChemObjectBuilder.getInstance()).getBitFingerprint(moleculesArray[i]), 166);
+        }
         Descriptor[] descriptors = new Descriptor[]{Descriptor.MACCS_FINGERPRINTER};
-        boolean isParallelCalculation = false;
-
         Assertions.assertEquals(166, Descriptor.getNumberOfComponents(descriptors));
 
-        float[][] matrix = new float[1][166];
-        Arrays.fill(matrix[0], 0f);
-        List<int[]> nanPositions = Collections.synchronizedList(new LinkedList<>());
-        Assertions.assertTrue(
-                DescriptorCalculator.setDescriptorsForMoleculesByMoleculeParallelization(
-                        descriptors,
-                        moleculesArray,
-                        matrix,
-                        startIndex,
-                        isParallelCalculation,
-                        nanPositions
-                )
-        );
-        //TODO: is there no reference fingerprint?
-        Assertions.assertEquals(1, matrix[0][124]);
-        Assertions.assertEquals(0, matrix[0][165]);
-
-        matrix = new float[1][166];
-        Arrays.fill(matrix[0], 0f);
-        nanPositions = Collections.synchronizedList(new LinkedList<>());
-        Assertions.assertTrue(
-                DescriptorCalculatorTest.setDescriptorsForMoleculesByMoleculeParallelizationNew(
-                        descriptors,
-                        moleculesArray,
-                        matrix,
-                        startIndex,
-                        isParallelCalculation,
-                        nanPositions
-                )
-        );
-        Assertions.assertEquals(1, matrix[0][124]);
-        Assertions.assertEquals(0, matrix[0][165]);
+        for (boolean isEngine : new boolean[]{true, false}) {
+            float[][] matrix = new float[moleculesArray.length][166];
+            List<int[]> nanPositions = new ArrayList<>();
+            if (isEngine) {
+                Assertions.assertTrue(DescriptorCalculator.setDescriptorsForMoleculesByMoleculeParallelization(
+                        descriptors, moleculesArray, matrix, 0, false, nanPositions));
+            } else {
+                Assertions.assertTrue(DescriptorCalculatorTest.setDescriptorsForMoleculesByMoleculeParallelizationNew(
+                        descriptors, moleculesArray, matrix, 0, false, nanPositions));
+            }
+            // reference bits taken from MACCSFingerprinterTest
+            Assertions.assertEquals(1f, matrix[0][124]);
+            Assertions.assertEquals(0f, matrix[0][165]);
+            Assertions.assertEquals(0f, matrix[1][124]);
+            Assertions.assertEquals(1f, matrix[2][165]);
+            // complete comparison with the direct CDK calculation
+            for (int i = 0; i < moleculesArray.length; i++) {
+                Assertions.assertArrayEquals(expected[i], matrix[i], smilesArray[i] + ", engine=" + isEngine);
+            }
+        }
     }
 
     /**
      * Test method for all CIRCULAR_FINGERPRINTER_ECFP descriptors of different diameters.
+     * <p>
+     * Reference values: for ECFP6 with 1024 bits, the CDK test class CircularFingerprinterTest contains a complete
+     * reference fingerprint of propanamide ("CCC(=O)N", bits 19, 152, 293, 340, 439, 480, 507, 726, 762, 947, 993),
+     * which is tested here. For ECFP0, ECFP2 and ECFP4 there are no reference fingerprints; therefore, all bits of all
+     * four fingerprints are additionally compared with the fingerprints calculated directly with the CDK class
+     * {@link CircularFingerprinter}, i.e. without the engine.
+     * <p>
+     * Note: This test checks that the engine calculates the descriptor correctly (correct CDK class and parameters,
+     * correct conversion of the result and correct position in the data matrix), NOT that the descriptor itself is
+     * scientifically correct; the latter is the responsibility of the respective CDK descriptor tests.
      *
      * @throws Exception if anything goes wrong
      */
     @Test
     void test_CIRCULAR_FINGERPRINTER_ECFP() throws Exception {
-        //1,2-Diphenylethane CID: 7647
-        String smiles = "c1ccccc1CCc1ccccc1";
-        SmilesParser smilesParser = new SmilesParser(SilentChemObjectBuilder.getInstance());
-        IAtomContainer molecule = smilesParser.parseSmiles(smiles);
-        DescriptorCalculator.setAromaticity(molecule, Aromaticity.Model.Daylight);
-        IAtomContainer[] moleculesArray = new IAtomContainer[]{molecule};
-        int startIndex = 0;
         Descriptor[] descriptors = new Descriptor[]{
                 Descriptor.CIRCULAR_FINGERPRINTER_ECFP_0,
                 Descriptor.CIRCULAR_FINGERPRINTER_ECFP_2,
                 Descriptor.CIRCULAR_FINGERPRINTER_ECFP_4,
                 Descriptor.CIRCULAR_FINGERPRINTER_ECFP_6
         };
-        boolean isParallelCalculation = false;
-
-        Assertions.assertEquals(1024 * 4, Descriptor.getNumberOfComponents(descriptors));
-
-        float[][] matrix = new float[1][1024 * 4];
-        Arrays.fill(matrix[0], 0f);
-        List<int[]> nanPositions = Collections.synchronizedList(new LinkedList<>());
-        Assertions.assertTrue(
-                DescriptorCalculator.setDescriptorsForMoleculesByMoleculeParallelization(
-                        descriptors,
-                        moleculesArray,
-                        matrix,
-                        startIndex,
-                        isParallelCalculation,
-                        nanPositions
-                )
-        );
-        //TODO see above
-        Assertions.assertEquals(0, nanPositions.size());
-
-        matrix = new float[1][1024 * 4];
-        Arrays.fill(matrix[0], 0f);
-        nanPositions = Collections.synchronizedList(new LinkedList<>());
-        Assertions.assertTrue(
-                DescriptorCalculatorTest.setDescriptorsForMoleculesByMoleculeParallelizationNew(
-                        descriptors,
-                        moleculesArray,
-                        matrix,
-                        startIndex,
-                        isParallelCalculation,
-                        nanPositions
-                )
-        );
-        Assertions.assertEquals(0, nanPositions.size());
+        int[] cdkClasses = new int[]{
+                CircularFingerprinter.CLASS_ECFP0,
+                CircularFingerprinter.CLASS_ECFP2,
+                CircularFingerprinter.CLASS_ECFP4,
+                CircularFingerprinter.CLASS_ECFP6
+        };
+        // row 1 is propanamide, ECFP6 is the fourth fingerprint in the row
+        final int[] referenceBitsEcfp6 = new int[]{19, 152, 293, 340, 439, 480, 507, 726, 762, 947, 993};
+        int size = DescriptorCalculator.getCircularFingerprintSize();
+        Assertions.assertEquals(1024, size, "reference fingerprint requires the default size of 1024 bits");
+        for (float[][] matrix : DescriptorCalculatorTest.calculateCircularFingerprintsAndCompareWithCdk(descriptors, cdkClasses)) {
+            BitSet expectedBits = new BitSet();
+            for (int bit : referenceBitsEcfp6) {
+                expectedBits.set(bit);
+            }
+            for (int i = 0; i < size; i++) {
+                Assertions.assertEquals(expectedBits.get(i) ? 1f : 0f, matrix[1][3 * size + i], "ECFP6 bit " + i);
+            }
+        }
     }
 
     /**
      * Test method for all CIRCULAR_FINGERPRINTER_FCFP descriptors of different diameters.
+     * <p>
+     * There are no reference fingerprints for FCFP in the CDK test classes (only raw FCFP6 features in the
+     * CircularFingerprinterTest validation data, not folded bit fingerprints). Therefore, all bits of all four
+     * fingerprints are compared with the fingerprints calculated directly with the CDK class
+     * {@link CircularFingerprinter}, i.e. without the engine.
+     * <p>
+     * Note: This test checks that the engine calculates the descriptor correctly (correct CDK class and parameters,
+     * correct conversion of the result and correct position in the data matrix), NOT that the descriptor itself is
+     * scientifically correct; the latter is the responsibility of the respective CDK descriptor tests.
      *
      * @throws Exception if anything goes wrong
      */
     @Test
     void test_CIRCULAR_FINGERPRINTER_FCFP() throws Exception {
-        //1,2-Diphenylethane CID: 7647
-        String smiles = "c1ccccc1CCc1ccccc1";
-        SmilesParser smilesParser = new SmilesParser(SilentChemObjectBuilder.getInstance());
-        IAtomContainer molecule = smilesParser.parseSmiles(smiles);
-        DescriptorCalculator.setAromaticity(molecule, Aromaticity.Model.Daylight);
-        IAtomContainer[] moleculesArray = new IAtomContainer[]{molecule};
-        int startIndex = 0;
         Descriptor[] descriptors = new Descriptor[]{
                 Descriptor.CIRCULAR_FINGERPRINTER_FCFP_0,
                 Descriptor.CIRCULAR_FINGERPRINTER_FCFP_2,
                 Descriptor.CIRCULAR_FINGERPRINTER_FCFP_4,
                 Descriptor.CIRCULAR_FINGERPRINTER_FCFP_6
         };
-        boolean isParallelCalculation = false;
-
-        Assertions.assertEquals(4 * 1024, Descriptor.getNumberOfComponents(descriptors));
-
-        float[][] matrix = new float[1][4 * 1024];
-        Arrays.fill(matrix[0], 0f);
-        List<int[]> nanPositions = Collections.synchronizedList(new LinkedList<>());
-        Assertions.assertTrue(
-                DescriptorCalculator.setDescriptorsForMoleculesByMoleculeParallelization(
-                        descriptors,
-                        moleculesArray,
-                        matrix,
-                        startIndex,
-                        isParallelCalculation,
-                        nanPositions
-                )
-        );
-        //TODO see above
-        Assertions.assertEquals(0, nanPositions.size());
-
-        matrix = new float[1][4 * 1024];
-        Arrays.fill(matrix[0], 0f);
-        nanPositions = Collections.synchronizedList(new LinkedList<>());
-        Assertions.assertTrue(
-                DescriptorCalculatorTest.setDescriptorsForMoleculesByMoleculeParallelizationNew(
-                        descriptors,
-                        moleculesArray,
-                        matrix,
-                        startIndex,
-                        isParallelCalculation,
-                        nanPositions
-                )
-        );
-        Assertions.assertEquals(0, nanPositions.size());
+        int[] cdkClasses = new int[]{
+                CircularFingerprinter.CLASS_FCFP0,
+                CircularFingerprinter.CLASS_FCFP2,
+                CircularFingerprinter.CLASS_FCFP4,
+                CircularFingerprinter.CLASS_FCFP6
+        };
+        DescriptorCalculatorTest.calculateCircularFingerprintsAndCompareWithCdk(descriptors, cdkClasses);
     }
 
     /**
@@ -3488,6 +3487,90 @@ class DescriptorCalculatorTest {
     }
 
     // Add new descriptor tests here!
+
+    /**
+     * Calculates the given circular fingerprints for 1,2-diphenylethane (with Daylight aromaticity) and propanamide
+     * (parsed only, as in the CDK test class CircularFingerprinterTest) with the engine and with the reference
+     * implementation of this test class, and asserts that all bits are equal to the fingerprints calculated directly
+     * with the CDK class {@link CircularFingerprinter}, i.e. without the engine.
+     * <p>
+     * Note: This test checks that the engine calculates the descriptor correctly (correct CDK class and parameters,
+     * correct conversion of the result and correct position in the data matrix), NOT that the descriptor itself is
+     * scientifically correct; the latter is the responsibility of the respective CDK descriptor tests.
+     *
+     * @param descriptors the circular fingerprint descriptors to test
+     * @param cdkClasses the corresponding CircularFingerprinter class constants (same order as descriptors)
+     * @return the result matrices of the engine and of the reference implementation (row 0: 1,2-diphenylethane,
+     *         row 1: propanamide) for additional checks against reference values
+     * @throws Exception if anything goes wrong
+     */
+    private static List<float[][]> calculateCircularFingerprintsAndCompareWithCdk(Descriptor[] descriptors, int[] cdkClasses) throws Exception {
+        SmilesParser smilesParser = new SmilesParser(SilentChemObjectBuilder.getInstance());
+        IAtomContainer diphenylethane = smilesParser.parseSmiles("c1ccccc1CCc1ccccc1"); // 1,2-Diphenylethane CID: 7647
+        DescriptorCalculator.setAromaticity(diphenylethane, Aromaticity.Model.Daylight);
+        IAtomContainer propanamide = smilesParser.parseSmiles("CCC(=O)N"); // Propanamide CID: 6578
+        IAtomContainer[] moleculesArray = new IAtomContainer[]{diphenylethane, propanamide};
+        int size = DescriptorCalculator.getCircularFingerprintSize();
+        Assertions.assertEquals(descriptors.length * size, Descriptor.getNumberOfComponents(descriptors));
+
+        // reference: the fingerprints calculated directly with the CDK class, without the engine
+        float[][] expected = new float[moleculesArray.length][descriptors.length * size];
+        for (int m = 0; m < moleculesArray.length; m++) {
+            for (int d = 0; d < descriptors.length; d++) {
+                float[] bits = DescriptorCalculatorTest.toFloatArray(
+                        new CircularFingerprinter(cdkClasses[d], size).getBitFingerprint(moleculesArray[m]), size);
+                System.arraycopy(bits, 0, expected[m], d * size, size);
+            }
+        }
+
+        List<float[][]> results = new ArrayList<>();
+        for (boolean isEngine : new boolean[]{true, false}) {
+            float[][] matrix = new float[moleculesArray.length][descriptors.length * size];
+            List<int[]> nanPositions = new ArrayList<>();
+            if (isEngine) {
+                Assertions.assertTrue(DescriptorCalculator.setDescriptorsForMoleculesByMoleculeParallelization(
+                        descriptors, moleculesArray, matrix, 0, false, nanPositions));
+            } else {
+                Assertions.assertTrue(DescriptorCalculatorTest.setDescriptorsForMoleculesByMoleculeParallelizationNew(
+                        descriptors, moleculesArray, matrix, 0, false, nanPositions));
+            }
+            Assertions.assertTrue(nanPositions.isEmpty());
+            for (int m = 0; m < moleculesArray.length; m++) {
+                Assertions.assertArrayEquals(expected[m], matrix[m], "molecule " + m + ", engine=" + isEngine);
+            }
+            results.add(matrix);
+        }
+        return results;
+    }
+
+    /**
+     * Converts a CDK DoubleArrayResult to the float values the engine writes into the data matrix.
+     *
+     * @param result the CDK result
+     * @return the values cast to float
+     */
+    private static float[] toFloatArray(DoubleArrayResult result) {
+        float[] values = new float[result.length()];
+        for (int i = 0; i < values.length; i++) {
+            values[i] = (float) result.get(i);
+        }
+        return values;
+    }
+
+    /**
+     * Converts a CDK bit fingerprint to the 0/1 float values the engine writes into the data matrix.
+     *
+     * @param fingerprint the CDK bit fingerprint
+     * @param size the number of bits
+     * @return 1.0f for set bits, 0.0f otherwise
+     */
+    private static float[] toFloatArray(IBitFingerprint fingerprint, int size) {
+        float[] values = new float[size];
+        for (int i = 0; i < size; i++) {
+            values[i] = fingerprint.get(i) ? 1.0f : 0.0f;
+        }
+        return values;
+    }
 
     /**
      * Helper method to generate an array of independent propionic acid molecule instances with Daylight aromaticity configured.
@@ -4364,17 +4447,17 @@ class DescriptorCalculatorTest {
         final String methodName = "setDescriptorsForMoleculesByMoleculeParallelizationNew";
         if (!DescriptorCalculator.validateDescriptors(descriptors, methodName)) {
             DescriptorCalculator.LOGGER.warn(methodName + " : Given descriptor array is empty, calculation aborted.");
-            return true;
+            return false;
         }
         if (!DescriptorCalculator.validateAtomContainerArray(atomContainerArray, methodName)) {
             DescriptorCalculator.LOGGER.warn(methodName + " : Given atom container array is empty, calculation aborted.");
-            return true;
+            return false;
         }
         for (Descriptor descriptor : descriptors) {
             if (descriptor.requires3DCoordinates()) {
                 if (!GeometryUtil.has3DCoordinates(atomContainerArray[0])) {
                     DescriptorCalculator.LOGGER.warn(methodName + " : Descriptors require 3D coordinates, but the given molecule does not have 3D coordinates. Calculation aborted.");
-                    return true;
+                    return false;
                 }
                 break;
             }
@@ -4803,137 +4886,78 @@ class DescriptorCalculatorTest {
                 case VABC:
                     vector[startIndex] = (float) ((DoubleResult) (new VABCDescriptor()).calculate(atomContainer).getValue()).doubleValue();
                     break;
-                case PUBCHEM_FINGERPRINTER:
-                    //TODO: why do the fingerprints have their own try-catch block? It does the same as the general one below, right? So, can we remove them?
-                    try {
-                        IBitFingerprint fingerprint = new PubchemFingerprinter(SilentChemObjectBuilder.getInstance()).getBitFingerprint(atomContainer);
-                        for (int i = 0; i < Descriptor.PUBCHEM_FINGERPRINTER.getDescriptorComponentNumber(); i++) {
-                            vector[startIndex + i] = fingerprint.get(i) ? 1.0f : 0.0f;
-                        }
-                    } catch (Exception exception) {
-                        for (int i = 0; i < Descriptor.PUBCHEM_FINGERPRINTER.getDescriptorComponentNumber(); i++) {
-                            vector[startIndex + i] = Float.NaN;
-                        }
-                        DescriptorCalculator.LOGGER.warn(exception.toString(), exception);
+                // Note: exceptions of the fingerprinters are handled by the general catch block below (NaN values and
+                // NaN position tracking), as for all other descriptors
+                case PUBCHEM_FINGERPRINTER: {
+                    IBitFingerprint fingerprint = new PubchemFingerprinter(SilentChemObjectBuilder.getInstance()).getBitFingerprint(atomContainer);
+                    for (int i = 0; i < Descriptor.PUBCHEM_FINGERPRINTER.getDescriptorComponentNumber(); i++) {
+                        vector[startIndex + i] = fingerprint.get(i) ? 1.0f : 0.0f;
                     }
                     break;
-                case CIRCULAR_FINGERPRINTER_ECFP_0:
-                    try {
-                        IBitFingerprint fingerprint = new CircularFingerprinter(CircularFingerprinter.CLASS_ECFP0, DescriptorCalculator.getCircularFingerprintSize()).getBitFingerprint(atomContainer);
-                        for (int i = 0; i < DescriptorCalculator.getCircularFingerprintSize(); i++) {
-                            vector[startIndex + i] = fingerprint.get(i) ? 1.0f : 0.0f;
-                        }
-                    } catch (Exception exception) {
-                        for (int i = 0; i < DescriptorCalculator.getCircularFingerprintSize(); i++) {
-                            vector[startIndex + i] = Float.NaN;
-                        }
-                        DescriptorCalculator.LOGGER.warn(exception.toString(), exception);
+                }
+                case CIRCULAR_FINGERPRINTER_ECFP_0: {
+                    IBitFingerprint fingerprint = new CircularFingerprinter(CircularFingerprinter.CLASS_ECFP0, DescriptorCalculator.getCircularFingerprintSize()).getBitFingerprint(atomContainer);
+                    for (int i = 0; i < DescriptorCalculator.getCircularFingerprintSize(); i++) {
+                        vector[startIndex + i] = fingerprint.get(i) ? 1.0f : 0.0f;
                     }
                     break;
-                case CIRCULAR_FINGERPRINTER_FCFP_0:
-                    try {
-                        IBitFingerprint fingerprint = new CircularFingerprinter(CircularFingerprinter.CLASS_FCFP0, DescriptorCalculator.getCircularFingerprintSize()).getBitFingerprint(atomContainer);
-                        for (int i = 0; i < DescriptorCalculator.getCircularFingerprintSize(); i++) {
-                            vector[startIndex + i] = fingerprint.get(i) ? 1.0f : 0.0f;
-                        }
-                    } catch (Exception exception) {
-                        for (int i = 0; i < DescriptorCalculator.getCircularFingerprintSize(); i++) {
-                            vector[startIndex + i] = Float.NaN;
-                        }
-                        DescriptorCalculator.LOGGER.warn(exception.toString(), exception);
+                }
+                case CIRCULAR_FINGERPRINTER_FCFP_0: {
+                    IBitFingerprint fingerprint = new CircularFingerprinter(CircularFingerprinter.CLASS_FCFP0, DescriptorCalculator.getCircularFingerprintSize()).getBitFingerprint(atomContainer);
+                    for (int i = 0; i < DescriptorCalculator.getCircularFingerprintSize(); i++) {
+                        vector[startIndex + i] = fingerprint.get(i) ? 1.0f : 0.0f;
                     }
                     break;
-                case CIRCULAR_FINGERPRINTER_ECFP_2:
-                    try {
-                        IBitFingerprint fingerprint = new CircularFingerprinter(CircularFingerprinter.CLASS_ECFP2, DescriptorCalculator.getCircularFingerprintSize()).getBitFingerprint(atomContainer);
-                        for (int i = 0; i < DescriptorCalculator.getCircularFingerprintSize(); i++) {
-                            vector[startIndex + i] = fingerprint.get(i) ? 1.0f : 0.0f;
-                        }
-                    } catch (Exception exception) {
-                        for (int i = 0; i < DescriptorCalculator.getCircularFingerprintSize(); i++) {
-                            vector[startIndex + i] = Float.NaN;
-                        }
-                        DescriptorCalculator.LOGGER.warn(exception.toString(), exception);
+                }
+                case CIRCULAR_FINGERPRINTER_ECFP_2: {
+                    IBitFingerprint fingerprint = new CircularFingerprinter(CircularFingerprinter.CLASS_ECFP2, DescriptorCalculator.getCircularFingerprintSize()).getBitFingerprint(atomContainer);
+                    for (int i = 0; i < DescriptorCalculator.getCircularFingerprintSize(); i++) {
+                        vector[startIndex + i] = fingerprint.get(i) ? 1.0f : 0.0f;
                     }
                     break;
-                case CIRCULAR_FINGERPRINTER_FCFP_2:
-                    try {
-                        IBitFingerprint fingerprint = new CircularFingerprinter(CircularFingerprinter.CLASS_FCFP2, DescriptorCalculator.getCircularFingerprintSize()).getBitFingerprint(atomContainer);
-                        for (int i = 0; i < DescriptorCalculator.getCircularFingerprintSize(); i++) {
-                            vector[startIndex + i] = fingerprint.get(i) ? 1.0f : 0.0f;
-                        }
-                    } catch (Exception exception) {
-                        for (int i = 0; i < DescriptorCalculator.getCircularFingerprintSize(); i++) {
-                            vector[startIndex + i] = Float.NaN;
-                        }
-                        DescriptorCalculator.LOGGER.warn(exception.toString(), exception);
+                }
+                case CIRCULAR_FINGERPRINTER_FCFP_2: {
+                    IBitFingerprint fingerprint = new CircularFingerprinter(CircularFingerprinter.CLASS_FCFP2, DescriptorCalculator.getCircularFingerprintSize()).getBitFingerprint(atomContainer);
+                    for (int i = 0; i < DescriptorCalculator.getCircularFingerprintSize(); i++) {
+                        vector[startIndex + i] = fingerprint.get(i) ? 1.0f : 0.0f;
                     }
                     break;
-                case CIRCULAR_FINGERPRINTER_ECFP_4:
-                    try {
-                        IBitFingerprint fingerprint = new CircularFingerprinter(CircularFingerprinter.CLASS_ECFP4, DescriptorCalculator.getCircularFingerprintSize()).getBitFingerprint(atomContainer);
-                        for (int i = 0; i < DescriptorCalculator.getCircularFingerprintSize(); i++) {
-                            vector[startIndex + i] = fingerprint.get(i) ? 1.0f : 0.0f;
-                        }
-                    } catch (Exception exception) {
-                        for (int i = 0; i < DescriptorCalculator.getCircularFingerprintSize(); i++) {
-                            vector[startIndex + i] = Float.NaN;
-                        }
-                        DescriptorCalculator.LOGGER.warn(exception.toString(), exception);
+                }
+                case CIRCULAR_FINGERPRINTER_ECFP_4: {
+                    IBitFingerprint fingerprint = new CircularFingerprinter(CircularFingerprinter.CLASS_ECFP4, DescriptorCalculator.getCircularFingerprintSize()).getBitFingerprint(atomContainer);
+                    for (int i = 0; i < DescriptorCalculator.getCircularFingerprintSize(); i++) {
+                        vector[startIndex + i] = fingerprint.get(i) ? 1.0f : 0.0f;
                     }
                     break;
-                case CIRCULAR_FINGERPRINTER_FCFP_4:
-                    try {
-                        IBitFingerprint fingerprint = new CircularFingerprinter(CircularFingerprinter.CLASS_FCFP4, DescriptorCalculator.getCircularFingerprintSize()).getBitFingerprint(atomContainer);
-                        for (int i = 0; i < DescriptorCalculator.getCircularFingerprintSize(); i++) {
-                            vector[startIndex + i] = fingerprint.get(i) ? 1.0f : 0.0f;
-                        }
-                    } catch (Exception exception) {
-                        for (int i = 0; i < DescriptorCalculator.getCircularFingerprintSize(); i++) {
-                            vector[startIndex + i] = Float.NaN;
-                        }
-                        DescriptorCalculator.LOGGER.warn(exception.toString(), exception);
+                }
+                case CIRCULAR_FINGERPRINTER_FCFP_4: {
+                    IBitFingerprint fingerprint = new CircularFingerprinter(CircularFingerprinter.CLASS_FCFP4, DescriptorCalculator.getCircularFingerprintSize()).getBitFingerprint(atomContainer);
+                    for (int i = 0; i < DescriptorCalculator.getCircularFingerprintSize(); i++) {
+                        vector[startIndex + i] = fingerprint.get(i) ? 1.0f : 0.0f;
                     }
                     break;
-                case CIRCULAR_FINGERPRINTER_ECFP_6:
-                    try {
-                        IBitFingerprint fingerprint = new CircularFingerprinter(CircularFingerprinter.CLASS_ECFP6, DescriptorCalculator.getCircularFingerprintSize()).getBitFingerprint(atomContainer);
-                        for (int i = 0; i < DescriptorCalculator.getCircularFingerprintSize(); i++) {
-                            vector[startIndex + i] = fingerprint.get(i) ? 1.0f : 0.0f;
-                        }
-                    } catch (Exception exception) {
-                        for (int i = 0; i < DescriptorCalculator.getCircularFingerprintSize(); i++) {
-                            vector[startIndex + i] = Float.NaN;
-                        }
-                        DescriptorCalculator.LOGGER.warn(exception.toString(), exception);
+                }
+                case CIRCULAR_FINGERPRINTER_ECFP_6: {
+                    IBitFingerprint fingerprint = new CircularFingerprinter(CircularFingerprinter.CLASS_ECFP6, DescriptorCalculator.getCircularFingerprintSize()).getBitFingerprint(atomContainer);
+                    for (int i = 0; i < DescriptorCalculator.getCircularFingerprintSize(); i++) {
+                        vector[startIndex + i] = fingerprint.get(i) ? 1.0f : 0.0f;
                     }
                     break;
-                case CIRCULAR_FINGERPRINTER_FCFP_6:
-                    try {
-                        IBitFingerprint fingerprint = new CircularFingerprinter(CircularFingerprinter.CLASS_FCFP6, DescriptorCalculator.getCircularFingerprintSize()).getBitFingerprint(atomContainer);
-                        for (int i = 0; i < DescriptorCalculator.getCircularFingerprintSize(); i++) {
-                            vector[startIndex + i] = fingerprint.get(i) ? 1.0f : 0.0f;
-                        }
-                    } catch (Exception exception) {
-                        for (int i = 0; i < DescriptorCalculator.getCircularFingerprintSize(); i++) {
-                            vector[startIndex + i] = Float.NaN;
-                        }
-                        DescriptorCalculator.LOGGER.warn(exception.toString(), exception);
+                }
+                case CIRCULAR_FINGERPRINTER_FCFP_6: {
+                    IBitFingerprint fingerprint = new CircularFingerprinter(CircularFingerprinter.CLASS_FCFP6, DescriptorCalculator.getCircularFingerprintSize()).getBitFingerprint(atomContainer);
+                    for (int i = 0; i < DescriptorCalculator.getCircularFingerprintSize(); i++) {
+                        vector[startIndex + i] = fingerprint.get(i) ? 1.0f : 0.0f;
                     }
                     break;
-                case MACCS_FINGERPRINTER:
-                    try {
-                        IBitFingerprint fingerprint = new MACCSFingerprinter(SilentChemObjectBuilder.getInstance()).getBitFingerprint(atomContainer);
-                        for (int i = 0; i < Descriptor.MACCS_FINGERPRINTER.getDescriptorComponentNumber(); i++) {
-                            vector[startIndex + i] = fingerprint.get(i) ? 1.0f : 0.0f;
-                        }
-                    } catch (Exception exception) {
-                        for (int i = 0; i < Descriptor.MACCS_FINGERPRINTER.getDescriptorComponentNumber(); i++) {
-                            vector[startIndex + i] = Float.NaN;
-                        }
-                        DescriptorCalculator.LOGGER.warn(exception.toString(), exception);
+                }
+                case MACCS_FINGERPRINTER: {
+                    IBitFingerprint fingerprint = new MACCSFingerprinter(SilentChemObjectBuilder.getInstance()).getBitFingerprint(atomContainer);
+                    for (int i = 0; i < Descriptor.MACCS_FINGERPRINTER.getDescriptorComponentNumber(); i++) {
+                        vector[startIndex + i] = fingerprint.get(i) ? 1.0f : 0.0f;
                     }
                     break;
+                }
 
                 case CPSA:
                     DoubleArrayResult cpsaResult = (DoubleArrayResult) (new CPSADescriptor()).calculate(atomContainer).getValue();
@@ -5209,7 +5233,7 @@ class DescriptorCalculatorTest {
 
     /**
      * Tests that empty descriptor arrays, empty molecule arrays, and empty SMILES arrays
-     * abort calculation gracefully and return true.
+     * abort calculation gracefully and return false.
      */
     @Test
     void test_EmptyArraysValidation() throws Exception {
@@ -5228,33 +5252,225 @@ class DescriptorCalculatorTest {
         List<int[]> nanPositions = Collections.synchronizedList(new LinkedList<>());
 
         // Empty descriptors array
-        Assertions.assertTrue(DescriptorCalculator.setDescriptorsForMoleculesByMoleculeParallelization(
+        Assertions.assertFalse(DescriptorCalculator.setDescriptorsForMoleculesByMoleculeParallelization(
                 emptyDescriptors, validMolecules, matrix, 0, false, nanPositions
         ));
-        Assertions.assertTrue(DescriptorCalculator.setDescriptorsForMoleculesByBatchParallelization(
+        Assertions.assertFalse(DescriptorCalculator.setDescriptorsForMoleculesByBatchParallelization(
                 emptyDescriptors, validMolecules, matrix, 0, 1, false, nanPositions
         ));
-        Assertions.assertTrue(DescriptorCalculator.setDescriptorsForMoleculesBySmilesStringParallelization(
+        Assertions.assertFalse(DescriptorCalculator.setDescriptorsForMoleculesBySmilesStringParallelization(
                 emptyDescriptors, validSmiles, matrix, 0, ElectronDonation.daylight(), false, nanPositions
         ));
-        Assertions.assertTrue(DescriptorCalculator.setDescriptorsForMoleculeBySmilesStringsBatchParallelization(
+        Assertions.assertFalse(DescriptorCalculator.setDescriptorsForMoleculeBySmilesStringsBatchParallelization(
                 emptyDescriptors, validSmiles, matrix, 0, 1, ElectronDonation.daylight(), false, nanPositions
         ));
 
         // Empty molecule array
-        Assertions.assertTrue(DescriptorCalculator.setDescriptorsForMoleculesByMoleculeParallelization(
+        Assertions.assertFalse(DescriptorCalculator.setDescriptorsForMoleculesByMoleculeParallelization(
                 validDescriptors, emptyMolecules, matrix, 0, false, nanPositions
         ));
-        Assertions.assertTrue(DescriptorCalculator.setDescriptorsForMoleculesByBatchParallelization(
+        Assertions.assertFalse(DescriptorCalculator.setDescriptorsForMoleculesByBatchParallelization(
                 validDescriptors, emptyMolecules, matrix, 0, 1, false, nanPositions
         ));
 
         // Empty SMILES array
-        Assertions.assertTrue(DescriptorCalculator.setDescriptorsForMoleculesBySmilesStringParallelization(
+        Assertions.assertFalse(DescriptorCalculator.setDescriptorsForMoleculesBySmilesStringParallelization(
                 validDescriptors, emptySmiles, matrix, 0, ElectronDonation.daylight(), false, nanPositions
         ));
-        Assertions.assertTrue(DescriptorCalculator.setDescriptorsForMoleculeBySmilesStringsBatchParallelization(
+        Assertions.assertFalse(DescriptorCalculator.setDescriptorsForMoleculeBySmilesStringsBatchParallelization(
                 validDescriptors, emptySmiles, matrix, 0, 1, ElectronDonation.daylight(), false, nanPositions
         ));
+    }
+
+    /**
+     * Tests that NaN positions are tracked in any (non-synchronized) list, also in parallel mode, and are added
+     * sorted by molecule index and component index, including the start index offset.
+     *
+     * @throws Exception if anything goes wrong
+     */
+    @Test
+    void test_NaNPositions_PlainListSortedWithStartIndex() throws Exception {
+        // HYBRIDIZATION_RATIO is NaN for "[Na+].[Cl-]" and "[Xe]"
+        String[] pattern = new String[]{"CCO", "[Na+].[Cl-]", "CC", "[Xe]"};
+        String[] smiles = new String[200];
+        for (int i = 0; i < smiles.length; i++) {
+            smiles[i] = pattern[i % pattern.length];
+        }
+        Descriptor[] descriptors = new Descriptor[]{Descriptor.MOLECULAR_WEIGHT, Descriptor.HYBRIDIZATION_RATIO};
+        int startIndex = 1;
+        int nanColumn = startIndex + Descriptor.MOLECULAR_WEIGHT.getDescriptorComponentNumber();
+        List<int[]> expected = new ArrayList<>();
+        for (int i = 0; i < smiles.length; i++) {
+            if (i % 2 == 1) {
+                expected.add(new int[]{i, nanColumn});
+            }
+        }
+        for (boolean isParallel : new boolean[]{false, true}) {
+            float[][] matrix = new float[smiles.length][startIndex + Descriptor.getNumberOfComponents(descriptors)];
+            List<int[]> nanPositions = new ArrayList<>();
+            boolean success = DescriptorCalculator.setDescriptorsForMoleculesBySmilesStringParallelization(
+                    descriptors, smiles, matrix, startIndex, null, isParallel, nanPositions);
+            Assertions.assertFalse(success, "NaN values expected (parallel=" + isParallel + ")");
+            Assertions.assertEquals(expected.size(), nanPositions.size(), "parallel=" + isParallel);
+            for (int i = 0; i < expected.size(); i++) {
+                Assertions.assertArrayEquals(expected.get(i), nanPositions.get(i), "position " + i + ", parallel=" + isParallel);
+                Assertions.assertTrue(Float.isNaN(matrix[expected.get(i)[0]][expected.get(i)[1]]));
+            }
+        }
+    }
+
+    /**
+     * Tests that the calculation recipe of every descriptor matches its type, i.e. fingerprints are calculated with a
+     * pool of fingerprinters and all other descriptors with a CDK molecular descriptor.
+     */
+    @Test
+    void test_CalculationFactoryMatchesDescriptorType() {
+        for (Descriptor descriptor : Descriptor.values()) {
+            DescriptorCalculation calculation = descriptor.getCalculationFactory().create(
+                    new CalculationSettings(1, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, false));
+            Assertions.assertEquals(descriptor.isFingerprint(), calculation instanceof FingerprintCalculation, descriptor.name());
+            Assertions.assertEquals(!descriptor.isFingerprint(), calculation instanceof MolecularCalculation, descriptor.name());
+            // in count mode, only circular fingerprints are calculated as counts
+            DescriptorCalculation countCalculation = descriptor.getCalculationFactory().create(
+                    new CalculationSettings(1, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, true));
+            Assertions.assertEquals(descriptor.name().startsWith("CIRCULAR_FINGERPRINTER_"),
+                    countCalculation instanceof FingerprintCalculation && ((FingerprintCalculation) countCalculation).isCounts(),
+                    descriptor.name());
+        }
+    }
+
+    /**
+     * Tests that the 3D precondition is checked for all molecules, not only for the first one: if any molecule lacks
+     * 3D coordinates, the calculation is aborted (false is returned and the matrix is not changed).
+     *
+     * @throws Exception if anything goes wrong
+     */
+    @Test
+    void test_3DPrecondition_CheckedForAllMolecules() throws Exception {
+        SmilesParser smilesParser = new SmilesParser(SilentChemObjectBuilder.getInstance());
+        IAtomContainer with3D = smilesParser.parseSmiles("CC");
+        with3D.getAtom(0).setPoint3d(new Point3d(0.0, 0.0, 0.0));
+        with3D.getAtom(1).setPoint3d(new Point3d(1.54, 0.0, 0.0));
+        IAtomContainer without3D = smilesParser.parseSmiles("CC");
+        IAtomContainer[] molecules = new IAtomContainer[]{with3D, with3D, without3D};
+        Descriptor[] descriptors = new Descriptor[]{Descriptor.MOLECULAR_WEIGHT, Descriptor.MOMENT_OF_INERTIA};
+
+        float[][] matrix = new float[molecules.length][Descriptor.getNumberOfComponents(descriptors)];
+        List<int[]> nanPositions = new ArrayList<>();
+        Assertions.assertFalse(DescriptorCalculator.setDescriptorsForMoleculesByMoleculeParallelization(
+                descriptors, molecules, matrix, 0, true, nanPositions));
+        float[][] batchMatrix = new float[molecules.length][Descriptor.getNumberOfComponents(descriptors)];
+        Assertions.assertFalse(DescriptorCalculator.setDescriptorsForMoleculesByBatchParallelization(
+                descriptors, molecules, batchMatrix, 0, 2, true, nanPositions));
+
+        Assertions.assertTrue(nanPositions.isEmpty());
+        for (int i = 0; i < molecules.length; i++) {
+            Assertions.assertArrayEquals(new float[matrix[i].length], matrix[i], "calculation must not have started");
+            Assertions.assertArrayEquals(new float[batchMatrix[i].length], batchMatrix[i], "calculation must not have started");
+        }
+    }
+
+    /**
+     * Tests the folded count mode of the circular fingerprints (see
+     * {@link DescriptorCalculator#setCircularFingerprintCounts(boolean)}):
+     * <ul>
+     *     <li>the folding of the hash codes is checked against reference values of the CDK test class
+     *         CircularFingerprinterTest: folding the reference hash codes and counts of the count fingerprint of
+     *         propanamide ("CCC(=O)N", ECFP6) must yield exactly the reference bits of its bit fingerprint
+     *         (1024 bits), and the engine must calculate exactly these counts;</li>
+     *     <li>for all ECFP and FCFP fingerprints, a count is greater than 0 if and only if the corresponding bit of the
+     *         bit fingerprint is set;</li>
+     *     <li>all counts are equal to the count fingerprints calculated directly with the CDK class
+     *         {@link CircularFingerprinter}, i.e. without the engine, and folded;</li>
+     *     <li>counts greater than 1 occur (1,2-diphenylethane), and the number of components does not change.</li>
+     * </ul>
+     * Note: This test checks that the engine calculates the fingerprints correctly, NOT that the fingerprints
+     * themselves are scientifically correct; the latter is the responsibility of the CDK fingerprint tests.
+     *
+     * @throws Exception if anything goes wrong
+     */
+    @Test
+    void test_CircularFingerprintCounts() throws Exception {
+        int size = DescriptorCalculator.getCircularFingerprintSize();
+        Assertions.assertEquals(1024, size, "reference values require the default size of 1024 bits");
+        Assertions.assertFalse(DescriptorCalculator.isCircularFingerprintCounts(), "bit fingerprints are the default");
+
+        // reference values from CircularFingerprinterTest (propanamide, ECFP6, 1024 bits)
+        int[] referenceHashCodesAndCounts = new int[]{-414937772, 1, -1027418143, 1, 1627608083, 1, -868007456, 1,
+                -1006701866, 1, -1059145289, 1, -801752141, 1, 790592664, 1, -289109509, 1, -1650154758, 1, 1286833445, 1};
+        int[] referenceBits = new int[]{19, 152, 293, 340, 439, 480, 507, 726, 762, 947, 993};
+        float[] expectedPropanamideEcfp6Counts = new float[size];
+        BitSet foldedBits = new BitSet();
+        for (int i = 0; i < referenceHashCodesAndCounts.length; i += 2) {
+            int position = FingerprintCalculation.fold(referenceHashCodesAndCounts[i], size);
+            expectedPropanamideEcfp6Counts[position] += referenceHashCodesAndCounts[i + 1];
+            foldedBits.set(position);
+        }
+        BitSet expectedBits = new BitSet();
+        for (int bit : referenceBits) {
+            expectedBits.set(bit);
+        }
+        Assertions.assertEquals(expectedBits, foldedBits, "folding of the reference count fingerprint must yield the reference bits");
+
+        Descriptor[] descriptors = new Descriptor[]{
+                Descriptor.CIRCULAR_FINGERPRINTER_ECFP_0, Descriptor.CIRCULAR_FINGERPRINTER_ECFP_2,
+                Descriptor.CIRCULAR_FINGERPRINTER_ECFP_4, Descriptor.CIRCULAR_FINGERPRINTER_ECFP_6,
+                Descriptor.CIRCULAR_FINGERPRINTER_FCFP_0, Descriptor.CIRCULAR_FINGERPRINTER_FCFP_2,
+                Descriptor.CIRCULAR_FINGERPRINTER_FCFP_4, Descriptor.CIRCULAR_FINGERPRINTER_FCFP_6
+        };
+        int[] cdkClasses = new int[]{
+                CircularFingerprinter.CLASS_ECFP0, CircularFingerprinter.CLASS_ECFP2,
+                CircularFingerprinter.CLASS_ECFP4, CircularFingerprinter.CLASS_ECFP6,
+                CircularFingerprinter.CLASS_FCFP0, CircularFingerprinter.CLASS_FCFP2,
+                CircularFingerprinter.CLASS_FCFP4, CircularFingerprinter.CLASS_FCFP6
+        };
+        SmilesParser smilesParser = new SmilesParser(SilentChemObjectBuilder.getInstance());
+        IAtomContainer diphenylethane = smilesParser.parseSmiles("c1ccccc1CCc1ccccc1"); // 1,2-Diphenylethane CID: 7647
+        DescriptorCalculator.setAromaticity(diphenylethane, Aromaticity.Model.Daylight);
+        IAtomContainer propanamide = smilesParser.parseSmiles("CCC(=O)N"); // Propanamide CID: 6578, as in the CDK test
+        IAtomContainer[] moleculesArray = new IAtomContainer[]{diphenylethane, propanamide};
+        int numberOfComponents = Descriptor.getNumberOfComponents(descriptors);
+        Assertions.assertEquals(descriptors.length * size, numberOfComponents);
+
+        // reference: the count fingerprints calculated directly with the CDK class, without the engine, and folded
+        float[][] expectedCounts = new float[moleculesArray.length][numberOfComponents];
+        for (int m = 0; m < moleculesArray.length; m++) {
+            for (int d = 0; d < descriptors.length; d++) {
+                ICountFingerprint countFingerprint = new CircularFingerprinter(cdkClasses[d], size).getCountFingerprint(moleculesArray[m]);
+                for (int i = 0; i < countFingerprint.numOfPopulatedbins(); i++) {
+                    expectedCounts[m][d * size + FingerprintCalculation.fold(countFingerprint.getHash(i), size)] += countFingerprint.getCount(i);
+                }
+            }
+        }
+
+        float[][] bitMatrix = new float[moleculesArray.length][numberOfComponents];
+        Assertions.assertTrue(DescriptorCalculator.setDescriptorsForMoleculesByMoleculeParallelization(
+                descriptors, moleculesArray, bitMatrix, 0, false, new ArrayList<>()));
+        try {
+            Assertions.assertTrue(DescriptorCalculator.setCircularFingerprintCounts(true));
+            Assertions.assertTrue(DescriptorCalculator.isCircularFingerprintCounts());
+            Assertions.assertEquals(numberOfComponents, Descriptor.getNumberOfComponents(descriptors), "number of components must not change");
+            for (boolean isParallelCalculation : new boolean[]{false, true}) {
+                float[][] countMatrix = new float[moleculesArray.length][numberOfComponents];
+                List<int[]> nanPositions = new ArrayList<>();
+                Assertions.assertTrue(DescriptorCalculator.setDescriptorsForMoleculesByMoleculeParallelization(
+                        descriptors, moleculesArray, countMatrix, 0, isParallelCalculation, nanPositions));
+                Assertions.assertTrue(nanPositions.isEmpty());
+                boolean hasCountGreaterThanOne = false;
+                for (int m = 0; m < moleculesArray.length; m++) {
+                    Assertions.assertArrayEquals(expectedCounts[m], countMatrix[m], "molecule " + m + ", parallel=" + isParallelCalculation);
+                    for (int i = 0; i < numberOfComponents; i++) {
+                        Assertions.assertEquals(bitMatrix[m][i] == 1.0f, countMatrix[m][i] > 0.0f, "molecule " + m + ", component " + i);
+                        hasCountGreaterThanOne |= countMatrix[m][i] > 1.0f;
+                    }
+                }
+                Assertions.assertTrue(hasCountGreaterThanOne, "counts greater than 1 expected for 1,2-diphenylethane");
+                // reference counts of propanamide (row 1), ECFP6 is the fourth fingerprint
+                Assertions.assertArrayEquals(expectedPropanamideEcfp6Counts, Arrays.copyOfRange(countMatrix[1], 3 * size, 4 * size));
+            }
+        } finally {
+            DescriptorCalculator.setCircularFingerprintCounts(false);
+        }
+        Assertions.assertFalse(DescriptorCalculator.isCircularFingerprintCounts());
     }
 }
