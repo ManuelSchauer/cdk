@@ -720,7 +720,7 @@ public enum Descriptor {
      * @see AminoAcidCountDescriptor
      */
     AMINO_ACID_COUNT(false, true, false, false, false, 20, "Amino Acid Count",
-            molecular(AminoAcidCountDescriptor::new)),
+            molecular("AA.", AminoAcidCountDescriptor::new)),
     /**
      * Kier-Hall SMARTS descriptor that calculates counts of functional groups and substructures
      * based on the Kier and Hall SMARTS patterns, used for QSAR modeling and molecular characterization.
@@ -787,7 +787,7 @@ public enum Descriptor {
      * @see PubchemFingerprinter
      */
     PUBCHEM_FINGERPRINTER(false, true, true, false, false, 881, "PubChem Fingerprinter",
-            fingerprint(() -> new PubchemFingerprinter(SilentChemObjectBuilder.getInstance()))),
+            fingerprint("PubChem", () -> new PubchemFingerprinter(SilentChemObjectBuilder.getInstance()))),
     /**
      * Circular fingerprinter, generates an extended-connectivity fingerprint with a path diameter of 0.
      *
@@ -850,7 +850,7 @@ public enum Descriptor {
      * @see MACCSFingerprinter
      */
     MACCS_FINGERPRINTER(true, true, true, false, false, 166, "MACCS Fingerprinter",
-            fingerprint(() -> new MACCSFingerprinter(SilentChemObjectBuilder.getInstance()))),
+            fingerprint("MACCS", () -> new MACCSFingerprinter(SilentChemObjectBuilder.getInstance()))),
     /**
      * Charged Partial Surface Area (CPSA) descriptor, calculates 29 surface and charge descriptors.
      *
@@ -1064,9 +1064,22 @@ public enum Descriptor {
      * @return the calculation factory
      */
     private static DescriptorCalculationFactory molecular(CdkDescriptorSupplier cdkDescriptorSupplier) {
+        return Descriptor.molecular("", cdkDescriptorSupplier);
+    }
+
+    /**
+     * Returns the recipe for a CDK molecular descriptor whose component names get a prefix, because its CDK
+     * descriptor names are not unique among all descriptors (e.g. "AA." for the amino acid counts, whose CDK names
+     * like "nC" for cysteine collide with the atom counts like "nC" for carbon).
+     *
+     * @param namePrefix prefix of the component names
+     * @param cdkDescriptorSupplier creates the (configured) CDK descriptor instance
+     * @return the calculation factory
+     */
+    private static DescriptorCalculationFactory molecular(String namePrefix, CdkDescriptorSupplier cdkDescriptorSupplier) {
         return settings -> {
             try {
-                return new MolecularCalculation(cdkDescriptorSupplier.get());
+                return new MolecularCalculation(cdkDescriptorSupplier.get(), namePrefix);
             } catch (CDKException exception) {
                 throw new IllegalStateException("Failed to create the CDK descriptor, this should never happen.", exception);
             }
@@ -1077,11 +1090,12 @@ public enum Descriptor {
      * Returns the recipe for a CDK fingerprinter (bit fingerprint): a pool of fingerprinter instances, because
      * fingerprinters are not thread-safe.
      *
+     * @param namePrefix prefix of the component names, e.g. "PubChem" for "PubChem_0" ... "PubChem_880"
      * @param fingerprinterFactory creates a fingerprinter instance
      * @return the calculation factory
      */
-    private static DescriptorCalculationFactory fingerprint(Supplier<IFingerprinter> fingerprinterFactory) {
-        return settings -> new FingerprintCalculation(fingerprinterFactory, settings.getFingerprintPoolSize(), false);
+    private static DescriptorCalculationFactory fingerprint(String namePrefix, Supplier<IFingerprinter> fingerprinterFactory) {
+        return settings -> new FingerprintCalculation(fingerprinterFactory, settings.getFingerprintPoolSize(), false, namePrefix);
     }
 
     /**
@@ -1096,7 +1110,29 @@ public enum Descriptor {
         return settings -> new FingerprintCalculation(
                 () -> new CircularFingerprinter(circularFingerprinterClass, settings.getCircularFingerprintSize()),
                 settings.getFingerprintPoolSize(),
-                settings.isCircularFingerprintCounts());
+                settings.isCircularFingerprintCounts(),
+                Descriptor.circularFingerprintName(circularFingerprinterClass));
+    }
+
+    /**
+     * Returns the name of a circular fingerprint class, used as prefix of its component names, e.g. "ECFP4".
+     *
+     * @param circularFingerprinterClass the class of the circular fingerprint, e.g. CircularFingerprinter.CLASS_ECFP4
+     * @return the name of the class
+     * @throws IllegalArgumentException if the class is unknown
+     */
+    private static String circularFingerprintName(int circularFingerprinterClass) {
+        switch (circularFingerprinterClass) {
+            case CircularFingerprinter.CLASS_ECFP0: return "ECFP0";
+            case CircularFingerprinter.CLASS_ECFP2: return "ECFP2";
+            case CircularFingerprinter.CLASS_ECFP4: return "ECFP4";
+            case CircularFingerprinter.CLASS_ECFP6: return "ECFP6";
+            case CircularFingerprinter.CLASS_FCFP0: return "FCFP0";
+            case CircularFingerprinter.CLASS_FCFP2: return "FCFP2";
+            case CircularFingerprinter.CLASS_FCFP4: return "FCFP4";
+            case CircularFingerprinter.CLASS_FCFP6: return "FCFP6";
+            default: throw new IllegalArgumentException("Unknown circular fingerprint class: " + circularFingerprinterClass);
+        }
     }
 
     /**

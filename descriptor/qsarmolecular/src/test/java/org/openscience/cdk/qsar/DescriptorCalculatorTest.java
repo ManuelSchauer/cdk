@@ -111,13 +111,15 @@ import java.io.InputStream;
 import javax.vecmath.Point2d;
 import javax.vecmath.Point3d;
 import java.util.ArrayList;
+import java.util.stream.IntStream;
 import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.stream.IntStream;
 
 /**
  * Test class for DescriptorCalculator class. This class first tests all the descriptors included in the {@link Descriptor} class
@@ -5472,5 +5474,63 @@ class DescriptorCalculatorTest {
             DescriptorCalculator.setCircularFingerprintCounts(false);
         }
         Assertions.assertFalse(DescriptorCalculator.isCircularFingerprintCounts());
+    }
+
+    /**
+     * Tests getColumnNames(): for every descriptor, the number of names is equal to its number of components and no
+     * name is empty; the names of all descriptors are unique (the amino acid counts get the prefix "AA." because their
+     * CDK names like "nC" collide with the atom counts); for several descriptors, the names are returned in the order
+     * of the matrix columns (example with the CDK descriptor names "MW", "WPATH", "WPOL" and "nC"); fingerprints get
+     * generated names (prefix and bit index); empty and null input.
+     */
+    @Test
+    void test_getColumnNames() {
+        for (Descriptor descriptor : Descriptor.values()) {
+            Descriptor[] singleDescriptor = new Descriptor[]{descriptor};
+            String[] names = DescriptorCalculator.getColumnNames(singleDescriptor);
+            Assertions.assertEquals(Descriptor.getNumberOfComponents(singleDescriptor), names.length, descriptor.name());
+            for (String name : names) {
+                Assertions.assertNotNull(name, descriptor.name());
+                Assertions.assertFalse(name.trim().isEmpty(), descriptor.name());
+            }
+        }
+        Descriptor[] allDescriptors = Descriptor.values();
+        String[] allNames = DescriptorCalculator.getColumnNames(allDescriptors);
+        Assertions.assertEquals(Descriptor.getNumberOfComponents(allDescriptors), allNames.length);
+        Set<String> uniqueNames = new HashSet<>();
+        for (String name : allNames) {
+            Assertions.assertTrue(uniqueNames.add(name), "Duplicate column name: " + name);
+        }
+
+        // amino acid counts: prefixed CDK names, atom counts unchanged
+        String[] aminoAcidNames = DescriptorCalculator.getColumnNames(new Descriptor[]{Descriptor.AMINO_ACID_COUNT});
+        Assertions.assertEquals("AA.nA", aminoAcidNames[0]);
+        Assertions.assertTrue(Arrays.asList(aminoAcidNames).contains("AA.nC"));
+        Assertions.assertArrayEquals(new String[]{"nC"}, DescriptorCalculator.getColumnNames(new Descriptor[]{Descriptor.ATOM_COUNT_C}));
+
+        // names in the order of the matrix columns
+        Assertions.assertArrayEquals(new String[]{"MW", "WPATH", "WPOL", "nC"}, DescriptorCalculator.getColumnNames(
+                new Descriptor[]{Descriptor.MOLECULAR_WEIGHT, Descriptor.WIENER_NUMBER, Descriptor.ATOM_COUNT_C}));
+        Assertions.assertArrayEquals(new String[]{"nC", "MW"}, DescriptorCalculator.getColumnNames(
+                new Descriptor[]{Descriptor.ATOM_COUNT_C, Descriptor.MOLECULAR_WEIGHT}));
+
+        // fingerprints: generated names
+        String[] pubChemNames = DescriptorCalculator.getColumnNames(new Descriptor[]{Descriptor.PUBCHEM_FINGERPRINTER});
+        Assertions.assertEquals("PubChem_0", pubChemNames[0]);
+        Assertions.assertEquals("PubChem_880", pubChemNames[880]);
+        String[] maccsNames = DescriptorCalculator.getColumnNames(new Descriptor[]{Descriptor.MACCS_FINGERPRINTER});
+        Assertions.assertEquals("MACCS_0", maccsNames[0]);
+        Assertions.assertEquals("MACCS_165", maccsNames[165]);
+        int circularSize = DescriptorCalculator.getCircularFingerprintSize();
+        String[] ecfp4Names = DescriptorCalculator.getColumnNames(new Descriptor[]{Descriptor.CIRCULAR_FINGERPRINTER_ECFP_4});
+        Assertions.assertEquals(circularSize, ecfp4Names.length);
+        Assertions.assertEquals("ECFP4_0", ecfp4Names[0]);
+        Assertions.assertEquals("ECFP4_" + (circularSize - 1), ecfp4Names[circularSize - 1]);
+        Assertions.assertEquals("FCFP6_0", DescriptorCalculator.getColumnNames(new Descriptor[]{Descriptor.CIRCULAR_FINGERPRINTER_FCFP_6})[0]);
+
+        // empty and null input
+        Assertions.assertEquals(0, DescriptorCalculator.getColumnNames(new Descriptor[0]).length);
+        Assertions.assertThrows(NullPointerException.class, () -> DescriptorCalculator.getColumnNames(null));
+        Assertions.assertThrows(NullPointerException.class, () -> DescriptorCalculator.getColumnNames(new Descriptor[]{Descriptor.MOLECULAR_WEIGHT, null}));
     }
 }
