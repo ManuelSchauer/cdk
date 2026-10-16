@@ -438,6 +438,32 @@ public final class DescriptorCalculator {
         return DescriptorCalculator.isCircularFingerprintCounts;
     }
 
+    /**
+     * Returns the name of every matrix column for the given descriptors, in the order of the columns, i.e. the i-th
+     * name belongs to column startIndex + i of a matrix calculated with the same descriptor array. For molecular
+     * descriptors, these are the descriptor names of the CDK (e.g. "WPATH" and "WPOL" for the Wiener numbers); for
+     * fingerprints, which have no bit names in the CDK, they are generated as prefix and bit index (e.g. "PubChem_0"
+     * or "ECFP4_1023"). The number of names is equal to {@link Descriptor#getNumberOfComponents(Descriptor[])}.
+     *
+     * @param descriptors Array of descriptors (IS NOT CHANGED); if it is empty, an empty array is returned;
+     *                     may not be null (the array or one of its elements)
+     * @return the column names
+     * @throws NullPointerException if descriptors or one of its elements is null
+     */
+    public static String[] getColumnNames(Descriptor[] descriptors) {
+        if (descriptors == null) {
+            throw new NullPointerException("DescriptorCalculator.getColumnNames: descriptors is null.");
+        }
+        List<String> columnNames = new ArrayList<>();
+        for (Descriptor descriptor : descriptors) {
+            if (descriptor == null) {
+                throw new NullPointerException("DescriptorCalculator.getColumnNames: At least one descriptor in descriptors is null.");
+            }
+            columnNames.addAll(Arrays.asList(DescriptorCalculator.calculations.get(descriptor).getComponentNames()));
+        }
+        return columnNames.toArray(new String[0]);
+    }
+
 
     /**
      * Uses a specified aromaticity model to modify molecule.

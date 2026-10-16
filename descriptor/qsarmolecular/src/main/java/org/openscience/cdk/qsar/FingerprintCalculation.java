@@ -68,19 +68,47 @@ final class FingerprintCalculation implements DescriptorCalculation {
     private final boolean isCounts;
 
     /**
+     * Prefix of the component names, e.g. "PubChem" or "ECFP4".
+     */
+    private final String namePrefix;
+
+    /**
+     * Size of the fingerprint, i.e. number of components, as given by the fingerprinter.
+     */
+    private final int size;
+
+    /**
      * Constructor, creates and fills the pool of fingerprinter instances.
      *
      * @param fingerprinterFactory creates a (configured) fingerprinter instance
      * @param poolSize             number of fingerprinter instances in the pool (must be greater than 0)
      * @param isCounts             true: the fingerprint is written as folded count fingerprint (only for circular
      *                             fingerprints, see the class documentation); false: as bit fingerprint
+     * @param namePrefix           prefix of the component names, e.g. "PubChem" or "ECFP4"
      */
-    FingerprintCalculation(Supplier<IFingerprinter> fingerprinterFactory, int poolSize, boolean isCounts) {
+    FingerprintCalculation(Supplier<IFingerprinter> fingerprinterFactory, int poolSize, boolean isCounts, String namePrefix) {
         this.pool = new LinkedBlockingQueue<>(poolSize);
         for (int i = 0; i < poolSize; i++) {
             this.pool.add(fingerprinterFactory.get());
         }
         this.isCounts = isCounts;
+        this.namePrefix = namePrefix;
+        this.size = this.pool.peek().getSize();
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * The CDK fingerprinters do not name their bits, so the names are generated as prefix and bit index, e.g.
+     * "PubChem_0" ... "PubChem_880" or "ECFP4_0" ... "ECFP4_1023".
+     */
+    @Override
+    public String[] getComponentNames() {
+        String[] names = new String[this.size];
+        for (int i = 0; i < this.size; i++) {
+            names[i] = this.namePrefix + "_" + i;
+        }
+        return names;
     }
 
     /**
