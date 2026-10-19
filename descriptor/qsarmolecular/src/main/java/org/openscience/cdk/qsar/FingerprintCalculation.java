@@ -145,16 +145,15 @@ final class FingerprintCalculation implements DescriptorCalculation {
         // take() blocks until a fingerprinter is available; InterruptedException propagates to the caller
         IFingerprinter fingerprinter = this.pool.take();
         try {
-            int size = descriptor.getDescriptorComponentNumber();
             if (this.isCounts) {
                 ICountFingerprint countFingerprint = fingerprinter.getCountFingerprint(atomContainer);
-                Arrays.fill(vector, startIndex, startIndex + size, 0.0f);
+                Arrays.fill(vector, startIndex, startIndex + this.size, 0.0f);
                 for (int i = 0; i < countFingerprint.numOfPopulatedbins(); i++) {
-                    vector[startIndex + FingerprintCalculation.fold(countFingerprint.getHash(i), size)] += countFingerprint.getCount(i);
+                    vector[startIndex + FingerprintCalculation.fold(countFingerprint.getHash(i), this.size)] += countFingerprint.getCount(i);
                 }
             } else {
                 IBitFingerprint bitFingerprint = fingerprinter.getBitFingerprint(atomContainer);
-                for (int i = 0; i < size; i++) {
+                for (int i = 0; i < this.size; i++) {
                     vector[startIndex + i] = bitFingerprint.get(i) ? 1.0f : 0.0f;
                 }
             }

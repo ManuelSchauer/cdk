@@ -154,10 +154,9 @@ class DescriptorTest {
             }
         }
 
-        // create all calculations in the same way as DescriptorCalculator.createCalculations(); fixed values are used
-        // instead of the configuration of DescriptorCalculator, so that its static initialization (which creates all
-        // calculations, too) does not fail first and the message names the incorrect enum constant
-        // (both for bit and for count circular fingerprints)
+        // create all calculations in the same way as DescriptorCalculator.createCalculations(); the recipes are called
+        // directly instead of creating a DescriptorCalculator (which creates all calculations, too), so that the
+        // message names the incorrect enum constant (both for bit and for count circular fingerprints)
         for (boolean isCircularFingerprintCounts : new boolean[]{false, true}) {
             CalculationSettings settings = new CalculationSettings(1, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, isCircularFingerprintCounts);
             EnumMap<Descriptor, DescriptorCalculation> calculations = new EnumMap<>(Descriptor.class);
@@ -177,7 +176,7 @@ class DescriptorTest {
         Assertions.assertEquals(166, Descriptor.MACCS_FINGERPRINTER.getDescriptorComponentNumber());
         for (Descriptor descriptor : Descriptor.values()) {
             if (descriptor.name().startsWith("CIRCULAR_FINGERPRINTER_")) {
-                Assertions.assertEquals(DescriptorCalculator.getCircularFingerprintSize(),
+                Assertions.assertEquals(Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE,
                         descriptor.getDescriptorComponentNumber(), descriptor.name());
             }
         }

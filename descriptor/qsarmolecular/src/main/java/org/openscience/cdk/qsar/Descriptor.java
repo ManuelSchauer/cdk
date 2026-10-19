@@ -108,7 +108,7 @@ import java.util.function.Supplier;
  *             all {@code CIRCULAR_FINGERPRINTER_*} variants) are handled via a thread-safe pool of
  *             {@link IFingerprinter} instances internally. By default, fingerprints are calculated as bit
  *             fingerprints (components 0 or 1); circular fingerprints can be calculated as folded count fingerprints
- *             instead, see {@link DescriptorCalculator#setCircularFingerprintCounts(boolean)}.
+ *             instead, see {@link DescriptorCalculator#DescriptorCalculator(int, int, boolean)}.
  *             Use {@link #isFingerprint()} to query this field.</li>
  *         <li><b>needsExplicitHydrogens</b> ({@code boolean}) – whether this descriptor requires
  *             explicit hydrogen atoms to be present in the molecule before calculation.
@@ -926,9 +926,9 @@ public enum Descriptor {
     private final boolean requires3DCoordinates;
 
     /**
-     * The number of components calculated by this descriptor.
+     * The number of components calculated by this descriptor (for circular fingerprints the default size).
      */
-    private int descriptorComponentNumber;
+    private final int descriptorComponentNumber;
 
     /**
      * The human-readable name of this descriptor for output purposes.
@@ -1016,6 +1016,9 @@ public enum Descriptor {
 
     /**
      * Returns the number of components calculated by this descriptor.
+     * Note: For circular fingerprints (CIRCULAR_FINGERPRINTER_*), this is the default size
+     * (1024); the actual number of components depends on the configuration of
+     * the {@link DescriptorCalculator}, see {@link DescriptorCalculator#getNumberOfComponents(Descriptor)}.
      *
      * @return the number of components calculated by this descriptor
      */
@@ -1101,7 +1104,7 @@ public enum Descriptor {
     /**
      * Returns the recipe for a CDK circular fingerprint: a pool of CircularFingerprinter instances with the
      * configured circular fingerprint size, calculated as bit or folded count fingerprint depending on the
-     * configuration (see {@link DescriptorCalculator#setCircularFingerprintCounts(boolean)}).
+     * configuration (see {@link DescriptorCalculator#DescriptorCalculator(int, int, boolean)}).
      *
      * @param circularFingerprinterClass the class of the circular fingerprint, e.g. CircularFingerprinter.CLASS_ECFP4
      * @return the calculation factory
@@ -1167,26 +1170,6 @@ public enum Descriptor {
      * variable would result in a default value of 0.
      */
     static final int CIRCULAR_FINGERPRINT_DEFAULT_SIZE = 1024;
-
-    /**
-     * Sets the number of components of all circular fingerprint "descriptors" (all {@code CIRCULAR_FINGERPRINTER_*}
-     * constants) to the given size.
-     * Note: This method must only be called by {@link DescriptorCalculator#setCircularFingerprintSize(int)}, which
-     * validates the size and reinitializes the fingerprint pools accordingly, so that the component numbers and
-     * the fingerprinter instances stay consistent.
-     *
-     * @param aSize the new size of the circular fingerprints (validated by the caller)
-     */
-    static void setCircularFingerprintComponentNumber(int aSize) {
-        Descriptor.CIRCULAR_FINGERPRINTER_ECFP_0.descriptorComponentNumber = aSize;
-        Descriptor.CIRCULAR_FINGERPRINTER_FCFP_0.descriptorComponentNumber = aSize;
-        Descriptor.CIRCULAR_FINGERPRINTER_ECFP_2.descriptorComponentNumber = aSize;
-        Descriptor.CIRCULAR_FINGERPRINTER_FCFP_2.descriptorComponentNumber = aSize;
-        Descriptor.CIRCULAR_FINGERPRINTER_ECFP_4.descriptorComponentNumber = aSize;
-        Descriptor.CIRCULAR_FINGERPRINTER_FCFP_4.descriptorComponentNumber = aSize;
-        Descriptor.CIRCULAR_FINGERPRINTER_ECFP_6.descriptorComponentNumber = aSize;
-        Descriptor.CIRCULAR_FINGERPRINTER_FCFP_6.descriptorComponentNumber = aSize;
-    }
 
     /**
      * Returns all available descriptors.
@@ -1263,6 +1246,9 @@ public enum Descriptor {
 
     /**
      * Returns sum of number of calculated components of an array of defined descriptors.
+     * Note: The default size is used for circular fingerprints; for the number of matrix columns of a
+     * {@link DescriptorCalculator} with another circular fingerprint size, use
+     * {@link DescriptorCalculator#getNumberOfComponents(Descriptor[])}.
      *
      * @param descriptors Array of descriptors (IS NOT CHANGED); if it is empty, 0 is returned;
      *                     may not be null (the array or one of its elements)
@@ -1294,6 +1280,8 @@ public enum Descriptor {
 
     /**
      * Returns the descriptor and component index for a given position in a descriptor array.
+     * Note: The default size is used for circular fingerprints; for a {@link DescriptorCalculator} with another
+     * circular fingerprint size, use {@link DescriptorCalculator#getDescriptorAndComponentIndex(Descriptor[], int)}.
      * <p>
      * Example: Given descriptors [MOLECULAR_WEIGHT (1 component), BCUT (6 components), WIENER_NUMBER (2 components)]:
      * <ul>
@@ -1363,6 +1351,9 @@ public enum Descriptor {
 
     /**
      * Returns the descriptor and its component name for a given position in a descriptor array.
+     * Note: The default size is used for circular fingerprints; for a {@link DescriptorCalculator} with another
+     * circular fingerprint size, use {@link DescriptorCalculator#getDescriptorAndComponentInfo(Descriptor[], int)},
+     * which additionally returns the column name of the component.
      * <p>
      * This is a convenience method that extends {@link #getDescriptorAndComponentIndex} by also
      * providing human-readable names for the descriptor and component.

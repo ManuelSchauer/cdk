@@ -44,11 +44,14 @@ import javax.vecmath.Point3d;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.IntStream;
@@ -60,7 +63,7 @@ import java.util.stream.IntStream;
  *     calculated components), are defined by the {@link Descriptor} enum.
  * </p>
  * <p>
- *     There are 4 different "public static boolean setDescriptorsForMolecules...()" methods with different forms of
+ *     There are 4 different "public boolean setDescriptorsForMolecules...()" methods with different forms of
  *     (parallelized) calculation. There is single molecule processing or batch processing for large datastructures.
  *     Single and Batch processing can be used with either an IAtomContainer array or with a String Array of SMILES codes.
  * </p>
@@ -134,11 +137,20 @@ import java.util.stream.IntStream;
  *     Thread safety for fingerprints is handled internally via a pool of
  *     {@link IFingerprinter} instances (one pool per fingerprint descriptor),
  *     because CDK fingerprinter objects are not thread-safe. The pool size defaults to 4 and can be adjusted
- *     with {@link #setFingerprintPoolSize(int)}.
+ *     with {@link #DescriptorCalculator(int, int, boolean)}.
+ * <p>
+ *     A calculator object holds its configuration (fingerprint pool size, circular fingerprint size and bit or count
+ *     mode for circular fingerprints) and its CDK descriptor and fingerprinter instances. The configuration is fixed
+ *     at construction, so one calculator can be used by any number of threads at the same time, and calculators
+ *     with different configurations can be used side by side. Because creating a calculator creates all CDK
+ *     descriptor and fingerprinter instances, a calculator should be reused for many calculations.
  * <p>
  *     Example usage of the DescriptorCalculator class:
  * </p>
  * <pre>{@code
+ * // Create a calculator with the default configuration (or e.g. new DescriptorCalculator(8, 2048, true))
+ * DescriptorCalculator calculator = new DescriptorCalculator();
+ *
  * // Preprocessing
  * // A: Molecule preprocessing:
  * // 1: Create a molecule
@@ -165,7 +177,7 @@ import java.util.stream.IntStream;
  * // Descriptor[] descriptors = Descriptor.getSpecifiedDescriptors(false, false, false, false);
  *
  * // 2. Determine total number of components needed (because some descriptors return multiple values, it is not equal to the number of descriptors)
- * int componentCount = Descriptor.getNumberOfComponents(descriptors);
+ * int componentCount = calculator.getNumberOfComponents(descriptors);
  *
  * // 3. Determine total number of molecules
  * int moleculeCount = molecules.length;
@@ -194,7 +206,7 @@ import java.util.stream.IntStream;
  * // Calculate descriptors (choose one of the following methods)
  *
  * // Option A: High-Performance-Parallel Descriptor Calculation with IAtomContainer array
- * boolean isSuccessful = DescriptorCalculator.setDescriptorsForMoleculesByMoleculeParallelization(
+ * boolean isSuccessful = calculator.setDescriptorsForMoleculesByMoleculeParallelization(
  *                      descriptors,
  *                      molecules,
  *                      matrix,
@@ -203,10 +215,10 @@ import java.util.stream.IntStream;
  *                      nanPositions
  * );
  * // isSuccessful is false if at least one NaN was produced (see nanPositions) or the calculation was aborted
- * // you can also use DescriptorCalculator.setDescriptorsForMoleculesByBatchParallelization(...) -> batchSize needs to be specified accordingly
+ * // you can also use calculator.setDescriptorsForMoleculesByBatchParallelization(...) -> batchSize needs to be specified accordingly
  *
  * // Option B: High-Performance-Parallel Descriptor Calculation with SMILES string array
- * boolean isSuccessfulSmiles = DescriptorCalculator.setDescriptorsForMoleculesBySmilesStringParallelization(
+ * boolean isSuccessfulSmiles = calculator.setDescriptorsForMoleculesBySmilesStringParallelization(
  *                      descriptors,
  *                      moleculeSmilesStrings,
  *                      smilesMatrix,
@@ -215,7 +227,7 @@ import java.util.stream.IntStream;
  *                      isParallelCalculation,
  *                      nanPositions
  * );
- * // you can also use DescriptorCalculator.setDescriptorsForMoleculeBySmilesStringsBatchParallelization(...) -> batchSize needs to be specified accordingly
+ * // you can also use calculator.setDescriptorsForMoleculeBySmilesStringsBatchParallelization(...) -> batchSize needs to be specified accordingly
  * }</pre>
  *
  * @author Manuel Schauer
@@ -234,40 +246,79 @@ public final class DescriptorCalculator {
     private static final SmilesParser SMILES_PARSER = new SmilesParser(SilentChemObjectBuilder.getInstance());
 
     /**
-     * Pool size for fingerprinter instances. Default value is 4 which should be sufficient for regular users.
-     * Can be changed via the synchronized {@link #setFingerprintPoolSize(int)} method. Note that the variable
-     * itself is not thread-safe!
+     * Default pool size for fingerprinter instances, which should be sufficient for regular users.
      */
-    private static volatile int fingerprintPoolSize = 4;
+    public static final int DEFAULT_FINGERPRINT_POOL_SIZE = 4;
 
     /**
-     * Size used for all circular fingerprint "descriptors". Default value is 1024.
-     * Can be changed via the synchronized {@link #setCircularFingerprintSize(int)} method.
+     * Pool size for fingerprinter instances, i.e. number of fingerprinter instances per fingerprint "descriptor".
      */
-    private static volatile int circularFingerprintSize = Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE;
+    private final int fingerprintPoolSize;
 
     /**
-     * True: circular fingerprints are calculated as folded count fingerprints; false (default): as bit fingerprints.
-     * Can be changed via the synchronized {@link #setCircularFingerprintCounts(boolean)} method.
+     * Size used for all circular fingerprint "descriptors", i.e. their number of components.
      */
-    private static volatile boolean isCircularFingerprintCounts = false;
+    private final int circularFingerprintSize;
+
+    /**
+     * True: circular fingerprints are calculated as folded count fingerprints; false: as bit fingerprints.
+     */
+    private final boolean isCircularFingerprintCounts;
 
     /**
      * EnumMap that maps every descriptor enum constant to its calculation, created from the descriptor's
-     * {@link DescriptorCalculationFactory} with the current configuration (fingerprint pool size, circular
-     * fingerprint size and circular fingerprint counts).
-     * Note: This field must be declared after the configuration fields, because it is initialized with their values.
-     * The map is never modified; when the configuration changes, a new map is created and assigned as a whole (see
-     * {@link #setFingerprintPoolSize(int)}, {@link #setCircularFingerprintSize(int)} and
-     * {@link #setCircularFingerprintCounts(boolean)}).
+     * {@link DescriptorCalculationFactory} with the configuration of this calculator (fingerprint pool size, circular
+     * fingerprint size and circular fingerprint counts). The map is never modified after construction.
      */
-    private static volatile EnumMap<Descriptor, DescriptorCalculation> calculations = DescriptorCalculator.createCalculations();
+    private final EnumMap<Descriptor, DescriptorCalculation> calculations;
 
     /**
-     * Private constructor, this class only provides static methods and is not meant to be instantiated.
+     * Creates a calculator with the default configuration: a fingerprint pool size of
+     * {@link #DEFAULT_FINGERPRINT_POOL_SIZE}, circular fingerprints with the default size of the {@link Descriptor}
+     * enum (1024), calculated as bit fingerprints.
      */
-    private DescriptorCalculator() {
-        // not instantiable
+    public DescriptorCalculator() {
+        this(DescriptorCalculator.DEFAULT_FINGERPRINT_POOL_SIZE, Descriptor.CIRCULAR_FINGERPRINT_DEFAULT_SIZE, false);
+    }
+
+    /**
+     * Creates a calculator with the given configuration. The configuration cannot be changed afterwards, so one
+     * calculator can be used by any number of threads at the same time. Creating a calculator creates all CDK
+     * descriptor and fingerprinter instances, so a calculator should be reused for many calculations.
+     * <p>
+     * The fingerprint pool size is the number of fingerprinter instances per fingerprint "descriptor", because CDK
+     * fingerprinter instances are not thread-safe. Increasing the pool size can improve performance in highly
+     * parallel environments but increases memory usage.
+     * <p>
+     * In count mode, all circular fingerprint "descriptors" (CIRCULAR_FINGERPRINTER_*) are calculated as folded count
+     * fingerprints instead of bit fingerprints. The count fingerprint of the CDK CircularFingerprinter is not folded,
+     * it enumerates hash codes and their counts. To obtain a fixed number of components (the circular fingerprint
+     * size), every hash code is folded in exactly the same way as for the bit fingerprint, and the counts of all hash
+     * codes folded into the same component are added up. Therefore, a component of the folded count fingerprint is
+     * greater than 0 if and only if the corresponding bit of the bit fingerprint is set, and the number of components
+     * does not change. Note: In count mode, the components of circular fingerprints are counts (0, 1, 2, ...) instead
+     * of 0 or 1, although {@link Descriptor#isFingerprint()} is still true for them. PubChem and MACCS fingerprints are
+     * always bit fingerprints.
+     *
+     * @param aFingerprintPoolSize        number of fingerprinter instances per fingerprint "descriptor" (must be
+     *                                    greater than 0); default {@link #DEFAULT_FINGERPRINT_POOL_SIZE}
+     * @param aCircularFingerprintSize    size, i.e. number of components, of all circular fingerprint "descriptors"
+     *                                    (must be greater than 0); default 1024
+     * @param isCircularFingerprintCounts true: circular fingerprints are calculated as folded count fingerprints;
+     *                                    false: as bit fingerprints (default)
+     * @throws IllegalArgumentException if aFingerprintPoolSize or aCircularFingerprintSize is less than or equal to 0
+     */
+    public DescriptorCalculator(int aFingerprintPoolSize, int aCircularFingerprintSize, boolean isCircularFingerprintCounts) {
+        if (aFingerprintPoolSize <= 0) {
+            throw new IllegalArgumentException("DescriptorCalculator: aFingerprintPoolSize must be greater than 0.");
+        }
+        if (aCircularFingerprintSize <= 0) {
+            throw new IllegalArgumentException("DescriptorCalculator: aCircularFingerprintSize must be greater than 0.");
+        }
+        this.fingerprintPoolSize = aFingerprintPoolSize;
+        this.circularFingerprintSize = aCircularFingerprintSize;
+        this.isCircularFingerprintCounts = isCircularFingerprintCounts;
+        this.calculations = this.createCalculations();
     }
 
     /**
@@ -290,9 +341,9 @@ public final class DescriptorCalculator {
      * @return Returns true if the calculation was successful and results were stored in the vector, false otherwise.
      * @throws InterruptedException if the current thread is interrupted while waiting for a pooled fingerprinter
      */
-    private static boolean calculate(Descriptor descriptor, IAtomContainer atomContainer, float[] vector, int startIndex) throws InterruptedException {
+    private boolean calculate(Descriptor descriptor, IAtomContainer atomContainer, float[] vector, int startIndex) throws InterruptedException {
         try {
-            return DescriptorCalculator.calculations.get(descriptor).calculate(descriptor, atomContainer, vector, startIndex);
+            return this.calculations.get(descriptor).calculate(descriptor, atomContainer, vector, startIndex);
         } catch (InterruptedException exception) {
             LOGGER.warn("Interrupted while waiting for fingerprinter instance from pool. This should not happen.", exception);
             throw exception;
@@ -303,16 +354,17 @@ public final class DescriptorCalculator {
     }
 
     /**
-     * Creates the calculations of all descriptors from their {@link DescriptorCalculationFactory} with the current
-     * configuration (fingerprint pool size, circular fingerprint size and circular fingerprint counts).
+     * Creates the calculations of all descriptors from their {@link DescriptorCalculationFactory} with the
+     * configuration of this calculator (fingerprint pool size, circular fingerprint size and circular fingerprint
+     * counts).
      *
      * @return a new map with the calculation of every descriptor
      * @throws UnsupportedOperationException if a calculation cannot be created, which should never happen
      */
-    private static EnumMap<Descriptor, DescriptorCalculation> createCalculations() {
+    private EnumMap<Descriptor, DescriptorCalculation> createCalculations() {
         try {
-            CalculationSettings settings = new CalculationSettings(DescriptorCalculator.fingerprintPoolSize,
-                    DescriptorCalculator.circularFingerprintSize, DescriptorCalculator.isCircularFingerprintCounts);
+            CalculationSettings settings = new CalculationSettings(this.fingerprintPoolSize,
+                    this.circularFingerprintSize, this.isCircularFingerprintCounts);
             EnumMap<Descriptor, DescriptorCalculation> newCalculations = new EnumMap<>(Descriptor.class);
             for (Descriptor descriptor : Descriptor.values()) {
                 newCalculations.put(descriptor, descriptor.getCalculationFactory().create(settings));
@@ -324,133 +376,150 @@ public final class DescriptorCalculator {
     }
 
     /**
-     * Sets the pool size for fingerprinter instances and reinitializes all fingerprint pools.
-     * The default pool size is 4, which should be sufficient for regular users.
-     * Increasing the pool size can improve performance in highly parallel environments
-     * but will increase memory usage.
-     * <p>
-     * This method is thread-safe and will block until all pools are reinitialized.
-     * Any fingerprinter instances currently in use will be returned to the old pools
-     * and will eventually be garbage collected.
-     * Note: This method must not be called while a calculation is running; configure before calculating.
+     * Returns the pool size for fingerprinter instances of this calculator.
      *
-     * @param aPoolSize The new pool size for fingerprinter instances (must be greater than 0)
-     * @return true if successful, false otherwise
-     * @throws IllegalArgumentException if aPoolSize is less than or equal to 0
+     * @return fingerprint pool size
      */
-    public static synchronized boolean setFingerprintPoolSize(int aPoolSize) throws IllegalArgumentException {
-        if (aPoolSize <= 0) {
-            throw new IllegalArgumentException("DescriptorCalculator.setFingerprintPoolSize: aPoolSize must be greater than 0.");
-        }
-        try {
-            DescriptorCalculator.fingerprintPoolSize = aPoolSize;
-            DescriptorCalculator.calculations = DescriptorCalculator.createCalculations();
-            return true;
-        } catch (Exception exception){
-            LOGGER.error("Failed to set fingerprint pool size and reinitialize pools: ", exception.getMessage());
-            return false;
-        }
-
+    public int getFingerprintPoolSize() {
+        return this.fingerprintPoolSize;
     }
 
     /**
-     * Returns the current pool size for fingerprinter instances.
+     * Returns the size used for circular fingerprints by this calculator.
      *
-     * @return Current fingerprint pool size
+     * @return circular fingerprint size
      */
-    public static synchronized int getFingerprintPoolSize() {
-        return DescriptorCalculator.fingerprintPoolSize;
+    public int getCircularFingerprintSize() {
+        return this.circularFingerprintSize;
     }
 
     /**
-     * Sets the size for circular fingerprints and reinitializes the corresponding pools.
-     * This method is thread-safe and will block until all pools are reinitialized.
-     * Any fingerprinter instances currently in use will be returned to the old pools
-     * and will eventually be garbage collected.
-     * Note: This method must not be called while a calculation is running (the number of components of the
-     * circular fingerprints changes); configure before calculating.
-     *
-     * @param aSize The new size for circular fingerprints (must be greater than 0)
-     * @return true if successful, false otherwise
-     * @throws IllegalArgumentException if aSize is less than or equal to 0
-     */
-    public static synchronized boolean setCircularFingerprintSize(int aSize) throws IllegalArgumentException {
-        if (aSize <= 0) {
-            throw new IllegalArgumentException("DescriptorCalculator.setCircularFingerprintSize: aSize must be greater than 0.");
-        }
-        try {
-            DescriptorCalculator.circularFingerprintSize = aSize;
-            Descriptor.setCircularFingerprintComponentNumber(aSize);
-            DescriptorCalculator.calculations = DescriptorCalculator.createCalculations();
-            return true;
-        } catch (Exception exception) {
-            LOGGER.error("Failed to set circular fingerprint size and reinitialize pools: ", exception.getMessage());
-            return false;
-        }
-    }
-
-    /**
-     * Returns the current size used for circular fingerprints.
-     *
-     * @return Current circular fingerprint size
-     */
-    public static synchronized int getCircularFingerprintSize() {
-        return DescriptorCalculator.circularFingerprintSize;
-    }
-
-    /**
-     * Sets whether all circular fingerprint "descriptors" (CIRCULAR_FINGERPRINTER_*) are calculated as folded count
-     * fingerprints instead of bit fingerprints (default) and reinitializes the calculations.
-     * <p>
-     * The count fingerprint of the CDK CircularFingerprinter is not folded, it enumerates hash codes and their counts.
-     * To obtain a fixed number of components (the circular fingerprint size, see
-     * {@link #setCircularFingerprintSize(int)}), every hash code is folded in exactly the same way as for the bit
-     * fingerprint, and the counts of all hash codes folded into the same component are added up. Therefore, a
-     * component of the folded count fingerprint is greater than 0 if and only if the corresponding bit of the bit
-     * fingerprint is set, and the number of components does not change. Note: In count mode, the components of
-     * circular fingerprints are counts (0, 1, 2, ...) instead of 0 or 1, although {@link Descriptor#isFingerprint()}
-     * is still true for them. PubChem and MACCS fingerprints are always bit fingerprints.
-     * <p>
-     * This method is thread-safe; it must not be called while a calculation is running (configure before
-     * calculating).
-     *
-     * @param isCounts true: circular fingerprints are calculated as folded count fingerprints; false: as bit
-     *                 fingerprints (default)
-     * @return true if successful, false otherwise
-     */
-    public static synchronized boolean setCircularFingerprintCounts(boolean isCounts) {
-        try {
-            DescriptorCalculator.isCircularFingerprintCounts = isCounts;
-            DescriptorCalculator.calculations = DescriptorCalculator.createCalculations();
-            return true;
-        } catch (Exception exception) {
-            LOGGER.error("Failed to set circular fingerprint counts and reinitialize the calculations: ", exception.getMessage());
-            return false;
-        }
-    }
-
-    /**
-     * Returns whether circular fingerprints are calculated as folded count fingerprints.
+     * Returns whether circular fingerprints are calculated as folded count fingerprints by this calculator.
      *
      * @return true: folded count fingerprints; false: bit fingerprints (default)
      */
-    public static synchronized boolean isCircularFingerprintCounts() {
-        return DescriptorCalculator.isCircularFingerprintCounts;
+    public boolean isCircularFingerprintCounts() {
+        return this.isCircularFingerprintCounts;
+    }
+
+    /**
+     * Returns the number of components of the given descriptor for this calculator, i.e. its number of matrix
+     * columns: the circular fingerprint size of this calculator for circular fingerprints (CIRCULAR_FINGERPRINTER_*),
+     * otherwise the (fixed) number of components of the descriptor, see
+     * {@link Descriptor#getDescriptorComponentNumber()}.
+     *
+     * @param descriptor the descriptor (IS NOT CHANGED); may not be null
+     * @return the number of components of the descriptor
+     * @throws NullPointerException if descriptor is null
+     */
+    public int getNumberOfComponents(Descriptor descriptor) {
+        if (descriptor == null) {
+            throw new NullPointerException("DescriptorCalculator.getNumberOfComponents: descriptor is null.");
+        }
+        if (descriptor.name().startsWith("CIRCULAR_FINGERPRINTER_")) {
+            return this.circularFingerprintSize;
+        }
+        return descriptor.getDescriptorComponentNumber();
+    }
+
+    /**
+     * Returns the sum of the numbers of components of the given descriptors for this calculator, i.e. the number of
+     * matrix columns needed for them (see {@link #getNumberOfComponents(Descriptor)}).
+     *
+     * @param descriptors Array of descriptors (IS NOT CHANGED); if it is empty, 0 is returned;
+     *                     may not be null (the array or one of its elements)
+     * @return Sum of number of calculated components of array of descriptors
+     * @throws NullPointerException if descriptors or one of its elements is null
+     */
+    public int getNumberOfComponents(Descriptor[] descriptors) {
+        if (descriptors == null) {
+            throw new NullPointerException("DescriptorCalculator.getNumberOfComponents: descriptors is null.");
+        }
+        int totalNumberOfComponents = 0;
+        for (Descriptor descriptor : descriptors) {
+            if (descriptor == null) {
+                throw new NullPointerException("DescriptorCalculator.getNumberOfComponents: At least one descriptor in descriptors is null.");
+            }
+            totalNumberOfComponents += this.getNumberOfComponents(descriptor);
+        }
+        return totalNumberOfComponents;
+    }
+
+    /**
+     * Returns the descriptor and component index for a given column index of a matrix calculated by this calculator
+     * with the given descriptor array (see {@link Descriptor#getDescriptorAndComponentIndex(Descriptor[], int)}, which
+     * uses the default circular fingerprint size).
+     *
+     * @param descriptors Array of descriptors (must not be null or empty; its elements must not be null)
+     * @param anIndex The column index relative to the start index of the descriptors (must be &gt;= 0 and &lt; total
+     *                component count)
+     * @return A two-element int array: [descriptor index in descriptors, component index within that descriptor]
+     * @throws NullPointerException if descriptors or one of its elements is null
+     * @throws IllegalArgumentException if descriptors is empty, anIndex is negative,
+     *                                  or anIndex exceeds the total number of components
+     */
+    public int[] getDescriptorAndComponentIndex(Descriptor[] descriptors, int anIndex) throws IllegalArgumentException {
+        int numberOfComponents = this.getNumberOfComponents(descriptors);
+        if (descriptors.length == 0) {
+            throw new IllegalArgumentException("DescriptorCalculator.getDescriptorAndComponentIndex: descriptors must not be empty.");
+        }
+        if (anIndex < 0) {
+            throw new IllegalArgumentException("DescriptorCalculator.getDescriptorAndComponentIndex: anIndex must be >= 0.");
+        }
+        if (anIndex >= numberOfComponents) {
+            throw new IllegalArgumentException("DescriptorCalculator.getDescriptorAndComponentIndex: anIndex (" + anIndex
+                    + ") exceeds total component count (" + numberOfComponents + ").");
+        }
+        int cumulativeCount = 0;
+        int[] result = new int[2];
+        for (int i = 0; i < descriptors.length; i++) {
+            int nextCumulativeCount = cumulativeCount + this.getNumberOfComponents(descriptors[i]);
+            if (anIndex < nextCumulativeCount) {
+                result[0] = i;
+                result[1] = anIndex - cumulativeCount;
+                break;
+            }
+            cumulativeCount = nextCumulativeCount;
+        }
+        return result;
+    }
+
+    /**
+     * Returns the descriptor name, the component index and the component name (column name, see
+     * {@link #getColumnNames(Descriptor[])}) for a given column index of a matrix calculated by this calculator with
+     * the given descriptor array, e.g. ["Wiener Numbers", "1", "WPOL"].
+     *
+     * @param descriptors Array of descriptors (must not be null or empty; its elements must not be null)
+     * @param anIndex The column index relative to the start index of the descriptors (must be &gt;= 0 and &lt; total
+     *                component count)
+     * @return A String array: [descriptor name, component index as string, component name]
+     * @throws NullPointerException if descriptors or one of its elements is null
+     * @throws IllegalArgumentException if descriptors is empty, anIndex is negative,
+     *                                  or anIndex exceeds the total number of components
+     */
+    public String[] getDescriptorAndComponentInfo(Descriptor[] descriptors, int anIndex) throws IllegalArgumentException {
+        int[] indices = this.getDescriptorAndComponentIndex(descriptors, anIndex);
+        Descriptor descriptor = descriptors[indices[0]];
+        return new String[] {
+                descriptor.getName(),
+                String.valueOf(indices[1]),
+                this.calculations.get(descriptor).getComponentNames()[indices[1]]
+        };
     }
 
     /**
      * Returns the name of every matrix column for the given descriptors, in the order of the columns, i.e. the i-th
-     * name belongs to column startIndex + i of a matrix calculated with the same descriptor array. For molecular
-     * descriptors, these are the descriptor names of the CDK (e.g. "WPATH" and "WPOL" for the Wiener numbers); for
-     * fingerprints, which have no bit names in the CDK, they are generated as prefix and bit index (e.g. "PubChem_0"
-     * or "ECFP4_1023"). The number of names is equal to {@link Descriptor#getNumberOfComponents(Descriptor[])}.
+     * name belongs to column startIndex + i of a matrix calculated by this calculator with the same descriptor array.
+     * For molecular descriptors, these are the descriptor names of the CDK (e.g. "WPATH" and "WPOL" for the Wiener
+     * numbers); for fingerprints, which have no bit names in the CDK, they are generated as prefix and bit index (e.g.
+     * "PubChem_0" or "ECFP4_1023"). The number of names is equal to {@link #getNumberOfComponents(Descriptor[])}.
      *
      * @param descriptors Array of descriptors (IS NOT CHANGED); if it is empty, an empty array is returned;
      *                     may not be null (the array or one of its elements)
      * @return the column names
      * @throws NullPointerException if descriptors or one of its elements is null
      */
-    public static String[] getColumnNames(Descriptor[] descriptors) {
+    public String[] getColumnNames(Descriptor[] descriptors) {
         if (descriptors == null) {
             throw new NullPointerException("DescriptorCalculator.getColumnNames: descriptors is null.");
         }
@@ -459,7 +528,7 @@ public final class DescriptorCalculator {
             if (descriptor == null) {
                 throw new NullPointerException("DescriptorCalculator.getColumnNames: At least one descriptor in descriptors is null.");
             }
-            columnNames.addAll(Arrays.asList(DescriptorCalculator.calculations.get(descriptor).getComponentNames()));
+            columnNames.addAll(Arrays.asList(this.calculations.get(descriptor).getComponentNames()));
         }
         return columnNames.toArray(new String[0]);
     }
@@ -518,9 +587,9 @@ public final class DescriptorCalculator {
      * @param molecule The molecule to calculate the descriptor for (must not be null);
      *                  aromaticity must be perceived beforehand if required; if it is empty, an empty array is returned
      * @return A float array containing the calculated descriptor components. Length equals
-     *         {@link Descriptor#getDescriptorComponentNumber()}. Contains NaN values if calculation fails.
+     *         {@link #getNumberOfComponents(Descriptor)}. Contains NaN values if calculation fails.
      */
-    public static float[] calculateDescriptor(Descriptor descriptor, IAtomContainer molecule)  {
+    public float[] calculateDescriptor(Descriptor descriptor, IAtomContainer molecule)  {
         // Checks
         if (descriptor == null) {
             throw new NullPointerException("DescriptorCalculator.calculateDescriptor: descriptor must not be null.");
@@ -532,20 +601,20 @@ public final class DescriptorCalculator {
             return new float[0];
         }
         if (descriptor.requires3DCoordinates() && !GeometryUtil.has3DCoordinates(molecule)) {
-            float[] result = new float[descriptor.getDescriptorComponentNumber()];
+            float[] result = new float[this.getNumberOfComponents(descriptor)];
             Arrays.fill(result, Float.NaN);
             DescriptorCalculator.LOGGER.warn("DescriptorCalculator.calculateDescriptor: Descriptor " + descriptor.getName() + " requires 3D coordinates, but the molecule does not have 3D coordinates.");
             return result;
         }
 
-        float[] result = new float[descriptor.getDescriptorComponentNumber()];
+        float[] result = new float[this.getNumberOfComponents(descriptor)];
         try {
             boolean success;
             if (descriptor.needsExplicitHydrogens()) {
                 IAtomContainer moleculeWithExplicitHydrogens = DescriptorCalculator.createMoleculeWithExplicitHydrogens(molecule);
-                success = DescriptorCalculator.calculate(descriptor, moleculeWithExplicitHydrogens, result, 0);
+                success = this.calculate(descriptor, moleculeWithExplicitHydrogens, result, 0);
             } else {
-                success = DescriptorCalculator.calculate(descriptor, molecule, result, 0);
+                success = this.calculate(descriptor, molecule, result, 0);
             }
             if (!success) {
                 Arrays.fill(result, Float.NaN);
@@ -573,9 +642,9 @@ public final class DescriptorCalculator {
      * @param molecule The molecule to calculate the descriptor for (must not be null); if it is empty, an empty array is returned
      * @param electronDonationModel The electron donation model to use for aromaticity perception (must not be null)
      * @return A float array containing the calculated descriptor components. Length equals
-     *         {@link Descriptor#getDescriptorComponentNumber()}. Contains NaN values if calculation fails.
+     *         {@link #getNumberOfComponents(Descriptor)}. Contains NaN values if calculation fails.
      */
-    public static float[] calculateDescriptor(Descriptor descriptor,
+    public float[] calculateDescriptor(Descriptor descriptor,
                                               IAtomContainer molecule,
                                               ElectronDonation electronDonationModel
     )   {
@@ -595,9 +664,9 @@ public final class DescriptorCalculator {
 
         try {
             DescriptorCalculator.setAromaticity(molecule, electronDonationModel);
-            return DescriptorCalculator.calculateDescriptor(descriptor, molecule);
+            return this.calculateDescriptor(descriptor, molecule);
         } catch (Exception exception) {
-            float[] result = new float[descriptor.getDescriptorComponentNumber()];
+            float[] result = new float[this.getNumberOfComponents(descriptor)];
             Arrays.fill(result, Float.NaN);
             DescriptorCalculator.LOGGER.warn(String.format("Failed to calculate descriptor %s: %s", descriptor.getName(), exception.getMessage()), exception);
             return result;
@@ -617,9 +686,9 @@ public final class DescriptorCalculator {
      * @param smilesString The SMILES string representing the molecule (must not be null); if it is blank, an empty array is returned
      * @param electronDonationModel The electron donation model to use for aromaticity perception (must not be null)
      * @return A float array containing the calculated descriptor components. Length equals
-     *         {@link Descriptor#getDescriptorComponentNumber()}. Contains NaN values if calculation fails.
+     *         {@link #getNumberOfComponents(Descriptor)}. Contains NaN values if calculation fails.
      */
-    public static float[] calculateDescriptor(Descriptor descriptor,
+    public float[] calculateDescriptor(Descriptor descriptor,
                                               String smilesString,
                                               ElectronDonation electronDonationModel
     )   {
@@ -637,7 +706,7 @@ public final class DescriptorCalculator {
             throw new NullPointerException("DescriptorCalculator.calculateDescriptor: electronDonationModel must not be null.");
         }
         if (descriptor.requires3DCoordinates()) {
-            float[] result = new float[descriptor.getDescriptorComponentNumber()];
+            float[] result = new float[this.getNumberOfComponents(descriptor)];
             Arrays.fill(result, Float.NaN);
             DescriptorCalculator.LOGGER.warn("DescriptorCalculator.calculateDescriptor: Descriptor " + descriptor.getName() + " requires 3D coordinates, which cannot be computed from a SMILES string.");
             return result;
@@ -646,9 +715,9 @@ public final class DescriptorCalculator {
         try {
             IAtomContainer molecule = DescriptorCalculator.SMILES_PARSER.parseSmiles(smilesString);
             DescriptorCalculator.setAromaticity(molecule, electronDonationModel);
-            return DescriptorCalculator.calculateDescriptor(descriptor, molecule);
+            return this.calculateDescriptor(descriptor, molecule);
         } catch (Exception exception) {
-            float[] result = new float[descriptor.getDescriptorComponentNumber()];
+            float[] result = new float[this.getNumberOfComponents(descriptor)];
             Arrays.fill(result, Float.NaN);
             DescriptorCalculator.LOGGER.warn(String.format("Failed to calculate descriptor %s: %s", descriptor.getName(), exception.getMessage()), exception);
             return result;
@@ -662,11 +731,12 @@ public final class DescriptorCalculator {
      * container batches (molecules) are distributed onto parallel thread, one for each molecule batch, and they all access shared
      * descriptor instances.
      * Note: For fingerprints a blocked queue is used, because fingerprinter instances are not threadsafe.
-     * The pool size can be changed via {@link #setFingerprintPoolSize(int)}.
+     * The pool size is set in the constructor, see {@link #DescriptorCalculator(int, int, boolean)}.
      *
      * @param descriptors Array of descriptors to be calculated (IS NOT CHANGED)
      * @param atomContainerArray Array of molecules. Note: atomContainerArray[i] corresponds to matrix[i] data
-     *                             vector, i.e. the molecules define the rows of the matrix (IS NOT CHANGED)
+     *                             vector, i.e. the molecules define the rows of the matrix (IS NOT CHANGED); every
+     *                             molecule object may only occur once in the array (use copies for duplicates)
      * @param matrix Matrix of component vectors of molecules. Note: Data vector matrix[i] corresponds to molecule
      *                atomContainerArray[i]. (MAY BE CHANGED)
      * @param startIndex Start index in a vector to be filled with calculated components of descriptors, i.e. matrix
@@ -680,13 +750,14 @@ public final class DescriptorCalculator {
      *         calculation is NaN, a global exception occurred, or the calculation was aborted before it started
      *         because the given descriptor or molecule array is empty or a descriptor requires 3D coordinates that are
      *         not available (in this case, the matrix is not changed)
-     * @throws IllegalArgumentException if the matrix dimensions are invalid or if batch size is &lt;= 0
+     * @throws IllegalArgumentException if the matrix dimensions are invalid, if batch size is &lt;= 0 or if a
+     *                                  molecule object occurs more than once in atomContainerArray
      * @throws InterruptedException if the current thread is interrupted during sequential fingerprint
      *                              calculation; in parallel mode, interruption is handled internally
      *                              by restoring the thread's interrupt flag via
      *                              {@link Thread#interrupt()} and the affected batch is aborted silently
      */
-    public static boolean setDescriptorsForMoleculesByBatchParallelization(
+    public boolean setDescriptorsForMoleculesByBatchParallelization(
             Descriptor[] descriptors,
             IAtomContainer[] atomContainerArray,
             float[][] matrix,
@@ -723,7 +794,7 @@ public final class DescriptorCalculator {
             throw new IllegalArgumentException(methodName + ": batchSize must be greater than 0 but was " + batchSize + ".");
         }
         // throws NullPointerException or IllegalArgumentException if the matrix or on eof its rows is null or its dimensions are invalid
-        DescriptorCalculator.validateMatrix(matrix, descriptors, atomContainerArray, startIndex, methodName);
+        this.validateMatrix(matrix, descriptors, atomContainerArray, startIndex, methodName);
 
         int numberOfMolecules = atomContainerArray.length;
         int numberOfBatches = (int) Math.ceil((double) numberOfMolecules / batchSize);
@@ -731,7 +802,7 @@ public final class DescriptorCalculator {
         int[] startIndices = new int[descriptors.length];
         for (int i = 0; i < descriptors.length; i++) {
             startIndices[i] = startIndex;
-            startIndex += descriptors[i].getDescriptorComponentNumber();
+            startIndex += this.getNumberOfComponents(descriptors[i]);
         }
 
         // NaN positions are collected in a thread-safe queue and handed over to nanPositionsList at the end
@@ -746,7 +817,7 @@ public final class DescriptorCalculator {
 
                     for (int i = batchStart; i < batchEnd; i++) {
                         try {
-                            boolean success = DescriptorCalculator.setDescriptorsForSingleMolecule(
+                            boolean success = this.setDescriptorsForSingleMolecule(
                                     descriptors,
                                     atomContainerArray[i],
                                     matrix[i],
@@ -773,7 +844,7 @@ public final class DescriptorCalculator {
             } else {
                 for (int i = 0; i < numberOfMolecules; i++) {
                     try {
-                        if (!DescriptorCalculator.setDescriptorsForSingleMolecule(descriptors, atomContainerArray[i], matrix[i], startIndices, i, collectedNanPositions)) {
+                        if (!this.setDescriptorsForSingleMolecule(descriptors, atomContainerArray[i], matrix[i], startIndices, i, collectedNanPositions)) {
                             hasNaN.set(true);
                         }
                     } catch (InterruptedException exception) {
@@ -808,7 +879,7 @@ public final class DescriptorCalculator {
      * batches (molecules) are distributed onto parallel thread, one for each molecule batch, and they all access shared
      * descriptor instances.
      * Note: For fingerprints a blocked queue is used, because fingerprinter instances are not threadsafe.
-     * The pool size can be changed via {@link #setFingerprintPoolSize(int)}.
+     * The pool size is set in the constructor, see {@link #DescriptorCalculator(int, int, boolean)}.
      *
      * @param descriptors Array of descriptors to be calculated (IS NOT CHANGED)
      * @param moleculeSmilesStringArray Array of molecule smiles strings. Note: moleculeSmilesStringArray[i] corresponds to matrix[i] data
@@ -834,7 +905,7 @@ public final class DescriptorCalculator {
      *                              by restoring the thread's interrupt flag via
      *                              {@link Thread#interrupt()} and the affected batch is aborted silently
      */
-    public static boolean setDescriptorsForMoleculeBySmilesStringsBatchParallelization(
+    public boolean setDescriptorsForMoleculeBySmilesStringsBatchParallelization(
             Descriptor[] descriptors,
             String[] moleculeSmilesStringArray,
             float[][] matrix,
@@ -867,7 +938,7 @@ public final class DescriptorCalculator {
             throw new IllegalArgumentException(methodName + ": batchSize must be greater than 0 but was " + batchSize + ".");
         }
         // throws NullPointerException or IllegalArgumentException if the matrix or on eof its rows is null or its dimensions are invalid
-        DescriptorCalculator.validateMatrix(matrix, descriptors, moleculeSmilesStringArray, startIndex, methodName);
+        this.validateMatrix(matrix, descriptors, moleculeSmilesStringArray, startIndex, methodName);
 
         int numberOfMolecules = moleculeSmilesStringArray.length;
         int numberOfBatches = (int) Math.ceil((double) numberOfMolecules / batchSize);
@@ -875,7 +946,7 @@ public final class DescriptorCalculator {
         int[] startIndices = new int[descriptors.length];
         for (int i = 0; i < descriptors.length; i++) {
             startIndices[i] = startIndex;
-            startIndex += descriptors[i].getDescriptorComponentNumber();
+            startIndex += this.getNumberOfComponents(descriptors[i]);
         }
 
         // NaN positions are collected in a thread-safe queue and handed over to nanPositionsList at the end
@@ -890,7 +961,7 @@ public final class DescriptorCalculator {
 
                     for (int i = batchStart; i < batchEnd; i++) {
                         try {
-                            boolean success = DescriptorCalculator.setDescriptorsForSingleMoleculeSmilesString(
+                            boolean success = this.setDescriptorsForSingleMoleculeSmilesString(
                                     descriptors,
                                     moleculeSmilesStringArray[i],
                                     matrix[i],
@@ -918,7 +989,7 @@ public final class DescriptorCalculator {
             } else {
                 for (int i = 0; i < numberOfMolecules; i++) {
                     try {
-                        if (!DescriptorCalculator.setDescriptorsForSingleMoleculeSmilesString(descriptors, moleculeSmilesStringArray[i], matrix[i], startIndices, i, electronDonationModel, collectedNanPositions)) {
+                        if (!this.setDescriptorsForSingleMoleculeSmilesString(descriptors, moleculeSmilesStringArray[i], matrix[i], startIndices, i, electronDonationModel, collectedNanPositions)) {
                             hasNaN.set(true);
                         }
                     } catch (InterruptedException exception) {
@@ -953,11 +1024,12 @@ public final class DescriptorCalculator {
      * containers (molecules) are distributed onto parallel thread, one for each molecule, and they all access shared
      * descriptor instances.
      * Note: For fingerprints a blocked queue is used, because fingerprinter instances are not threadsafe.
-     * The pool size can be changed via {@link #setFingerprintPoolSize(int)}
+     * The pool size is set in the constructor, see {@link #DescriptorCalculator(int, int, boolean)}.
      *
      * @param descriptors Array of descriptors to be calculated (IS NOT CHANGED)
      * @param atomContainerArray Array of molecules. Note: atomContainerArray[i] corresponds to matrix[i] data
-     *                             vector, i.e. the molecules define the rows of the matrix (IS NOT CHANGED)
+     *                             vector, i.e. the molecules define the rows of the matrix (IS NOT CHANGED); every
+     *                             molecule object may only occur once in the array (use copies for duplicates)
      * @param matrix Matrix of component vectors of molecules. Note: Data vector matrix[i] corresponds to molecule
      *                atomContainerArray[i]. (MAY BE CHANGED)
      * @param startIndex Start index in a vector to be filled with calculated components of descriptors, i.e. matrix
@@ -970,13 +1042,14 @@ public final class DescriptorCalculator {
      *         calculation is NaN, a global exception occurred, or the calculation was aborted before it started
      *         because the given descriptor or molecule array is empty or a descriptor requires 3D coordinates that are
      *         not available (in this case, the matrix is not changed)
-     * @throws IllegalArgumentException if the matrix dimensions are invalid
+     * @throws IllegalArgumentException if the matrix dimensions are invalid or if a molecule object occurs
+     *                                  more than once in atomContainerArray
      * @throws InterruptedException if the current thread is interrupted during sequential fingerprint
      *                              calculation; in parallel mode, interruption is handled internally
      *                              by restoring the thread's interrupt flag via
      *                              {@link Thread#interrupt()} and the affected molecule is skipped silently
      */
-    public static boolean setDescriptorsForMoleculesByMoleculeParallelization(
+    public boolean setDescriptorsForMoleculesByMoleculeParallelization(
             Descriptor[] descriptors,
             IAtomContainer[] atomContainerArray,
             float[][] matrix,
@@ -1009,12 +1082,12 @@ public final class DescriptorCalculator {
             throw new NullPointerException(methodName + ": nanPositionsList is null.");
         }
         // throws NullPointerException or IllegalArgumentException if the matrix or on eof its rows is null or its dimensions are invalid
-        DescriptorCalculator.validateMatrix(matrix, descriptors, atomContainerArray, startIndex, methodName);
+        this.validateMatrix(matrix, descriptors, atomContainerArray, startIndex, methodName);
 
         int[] startIndices = new int[descriptors.length];
         for (int i = 0; i < descriptors.length; i++) {
             startIndices[i] = startIndex;
-            startIndex += descriptors[i].getDescriptorComponentNumber();
+            startIndex += this.getNumberOfComponents(descriptors[i]);
         }
 
         // NaN positions are collected in a thread-safe queue and handed over to nanPositionsList at the end
@@ -1028,7 +1101,7 @@ public final class DescriptorCalculator {
                         i ->
                         {
                             try {
-                                boolean success = DescriptorCalculator.setDescriptorsForSingleMolecule(
+                                boolean success = this.setDescriptorsForSingleMolecule(
                                         descriptors,
                                         atomContainerArray[i],
                                         matrix[i],
@@ -1053,7 +1126,7 @@ public final class DescriptorCalculator {
             } else {
                 for (int i = 0; i < atomContainerArray.length; i++) {
                     try {
-                        if (!DescriptorCalculator.setDescriptorsForSingleMolecule(descriptors, atomContainerArray[i], matrix[i], startIndices, i, collectedNanPositions)) {
+                        if (!this.setDescriptorsForSingleMolecule(descriptors, atomContainerArray[i], matrix[i], startIndices, i, collectedNanPositions)) {
                             hasNaN.set(true);
                         }
                     } catch (InterruptedException exception) {
@@ -1088,7 +1161,7 @@ public final class DescriptorCalculator {
      * (molecules) are distributed onto parallel thread, one for each molecule, and they all access shared
      * descriptor instances.
      * Note: For fingerprints a blocked queue is used, because fingerprinter instances are not threadsafe.
-     * The pool size can be changed via {@link #setFingerprintPoolSize(int)}
+     * The pool size is set in the constructor, see {@link #DescriptorCalculator(int, int, boolean)}.
      *
      * @param descriptors Array of descriptors to be calculated (IS NOT CHANGED)
      * @param moleculeSmilesStringArray Array of molecule smiles strings. Note: moleculeSmilesStringArray[i] corresponds to matrix[i] data
@@ -1113,7 +1186,7 @@ public final class DescriptorCalculator {
      *                              by restoring the thread's interrupt flag via
      *                              {@link Thread#interrupt()} and the affected molecule is skipped silently
      */
-    public static boolean setDescriptorsForMoleculesBySmilesStringParallelization(
+    public boolean setDescriptorsForMoleculesBySmilesStringParallelization(
             Descriptor[] descriptors,
             String[] moleculeSmilesStringArray,
             float[][] matrix,
@@ -1142,13 +1215,13 @@ public final class DescriptorCalculator {
             throw new NullPointerException(methodName + ": nanPositionsList is null.");
         }
         // throws NullPointerException or IllegalArgumentException if the matrix or on eof its rows is null or its dimensions are invalid
-        DescriptorCalculator.validateMatrix(matrix, descriptors, moleculeSmilesStringArray, startIndex, methodName);
+        this.validateMatrix(matrix, descriptors, moleculeSmilesStringArray, startIndex, methodName);
 
         int numberOfMolecules = moleculeSmilesStringArray.length;
         int[] startIndices = new int[descriptors.length];
         for (int i = 0; i < descriptors.length; i++) {
             startIndices[i] = startIndex;
-            startIndex += descriptors[i].getDescriptorComponentNumber();
+            startIndex += this.getNumberOfComponents(descriptors[i]);
         }
         // NaN positions are collected in a thread-safe queue and handed over to nanPositionsList at the end
         Collection<int[]> collectedNanPositions = new ConcurrentLinkedQueue<>();
@@ -1161,7 +1234,7 @@ public final class DescriptorCalculator {
                         i ->
                         {
                             try {
-                                boolean success = DescriptorCalculator.setDescriptorsForSingleMoleculeSmilesString(
+                                boolean success = this.setDescriptorsForSingleMoleculeSmilesString(
                                         descriptors,
                                         moleculeSmilesStringArray[i],
                                         matrix[i],
@@ -1188,7 +1261,7 @@ public final class DescriptorCalculator {
             } else {
                 for (int i = 0; i < numberOfMolecules; i++) {
                     try {
-                        if (!DescriptorCalculator.setDescriptorsForSingleMoleculeSmilesString(descriptors, moleculeSmilesStringArray[i], matrix[i], startIndices, i, electronDonationModel, collectedNanPositions)) {
+                        if (!this.setDescriptorsForSingleMoleculeSmilesString(descriptors, moleculeSmilesStringArray[i], matrix[i], startIndices, i, electronDonationModel, collectedNanPositions)) {
                             hasNaN.set(true);
                         }
                     } catch (InterruptedException exception) {
@@ -1235,7 +1308,7 @@ public final class DescriptorCalculator {
      * @throws InterruptedException if the current thread is interrupted during fingerprint calculation
      *                              (propagated from {@link #setDescriptor})
      */
-    private static boolean setDescriptorsForSingleMolecule (
+    private boolean setDescriptorsForSingleMolecule (
             Descriptor[] descriptors,
             IAtomContainer atomContainer,
             float[] vector,
@@ -1253,7 +1326,7 @@ public final class DescriptorCalculator {
         boolean isSuccessful = true;
         for (int i = 0; i < descriptors.length; i++) {
             IAtomContainer moleculeToUse = descriptors[i].needsExplicitHydrogens() ? moleculeWithExplicitHydrogens : atomContainer;
-            if (!DescriptorCalculator.setDescriptor(descriptors[i], moleculeToUse, vector, aStartIndices[i], moleculeIndex, nanPositionsList)) {
+            if (!this.setDescriptor(descriptors[i], moleculeToUse, vector, aStartIndices[i], moleculeIndex, nanPositionsList)) {
                 isSuccessful = false;
             }
         }
@@ -1281,7 +1354,7 @@ public final class DescriptorCalculator {
      * @throws InterruptedException if the current thread is interrupted during fingerprint calculation
      *                              (propagated from {@link #setDescriptor})
      */
-    private static boolean setDescriptorsForSingleMoleculeSmilesString (
+    private boolean setDescriptorsForSingleMoleculeSmilesString (
             Descriptor[] descriptors,
             String moleculeSmilesString,
             float[] vector,
@@ -1307,7 +1380,7 @@ public final class DescriptorCalculator {
         boolean isSuccessful = true;
         for (int i = 0; i < descriptors.length; i++) {
             IAtomContainer moleculeToUse = descriptors[i].needsExplicitHydrogens() ? moleculeWithExplicitHydrogens : molecule;
-            if (!DescriptorCalculator.setDescriptor(descriptors[i], moleculeToUse, vector, aStartIndices[i], moleculeIndex, nanPositionsList)) {
+            if (!this.setDescriptor(descriptors[i], moleculeToUse, vector, aStartIndices[i], moleculeIndex, nanPositionsList)) {
                 isSuccessful = false;
             }
         }
@@ -1330,7 +1403,7 @@ public final class DescriptorCalculator {
      *                              (propagated from {@link #calculate}); all other exceptions are caught,
      *                              logged, and converted to NaN values in vector
      */
-    private static boolean setDescriptor(
+    private boolean setDescriptor(
             Descriptor descriptor,
             IAtomContainer atomContainer,
             float[] vector,
@@ -1339,9 +1412,9 @@ public final class DescriptorCalculator {
             Collection<int[]> nanPositionsList
     ) throws InterruptedException {
         try {
-            boolean success = DescriptorCalculator.calculate(descriptor, atomContainer, vector, startIndex);
+            boolean success = this.calculate(descriptor, atomContainer, vector, startIndex);
             if (!success) {
-                int numComponents = descriptor.getDescriptorComponentNumber();
+                int numComponents = this.getNumberOfComponents(descriptor);
                 for (int i = 0; i < numComponents; i++) {
                     vector[startIndex + i] = Float.NaN;
                     if (nanPositionsList != null) {
@@ -1352,12 +1425,12 @@ public final class DescriptorCalculator {
             }
 
             // Check for NaN values in the calculated result and track them
-            int numComponents = descriptor.getDescriptorComponentNumber();
+            int numComponents = this.getNumberOfComponents(descriptor);
             return !DescriptorCalculator.checkAndTrackNaNValues(vector, startIndex, numComponents, moleculeIndex, nanPositionsList);
         } catch (InterruptedException exception) {
             throw exception;
         } catch (Exception exception) {
-            int numComponents = descriptor.getDescriptorComponentNumber();
+            int numComponents = this.getNumberOfComponents(descriptor);
             for (int i = 0; i < numComponents; i++) {
                 vector[startIndex + i] = Float.NaN;
                 // Track NaN position if nanPositionsList is provided
@@ -1450,11 +1523,15 @@ public final class DescriptorCalculator {
 
     /**
      * Validates an atom container array input and its contents. Throws NullPointerExceptions if the array or one of
-     * its elements is null. Returns false if the array is empty. Note that the molecules in the array are allowed to be empty.
+     * its elements is null and an IllegalArgumentException if the same molecule object occurs more than once in the
+     * array (the CDK descriptors may change a molecule during calculation, e.g. by setting properties, so one molecule
+     * object must not be calculated by several threads at the same time). Returns false if the array is empty. Note
+     * that the molecules in the array are allowed to be empty.
      *
      * @param atomContainerArray the atom container array to validate
      * @param methodName the calling method name for error messages
      * @throws NullPointerException if molecule array or one of its elements is null
+     * @throws IllegalArgumentException if the same molecule object occurs more than once in the array
      * @return false if the atom container array is empty; true otherwise
      */
     static boolean validateAtomContainerArray(IAtomContainer[] atomContainerArray, String methodName) {
@@ -1464,9 +1541,14 @@ public final class DescriptorCalculator {
         if (atomContainerArray.length == 0) {
             return false;
         }
-        for (IAtomContainer molecule : atomContainerArray) {
-            if (molecule == null) {
+        Set<IAtomContainer> molecules = Collections.newSetFromMap(new IdentityHashMap<>(atomContainerArray.length));
+        for (int i = 0; i < atomContainerArray.length; i++) {
+            if (atomContainerArray[i] == null) {
                 throw new NullPointerException(methodName + ": A single molecule in atomContainerArray is null.");
+            }
+            if (!molecules.add(atomContainerArray[i])) {
+                throw new IllegalArgumentException(methodName + ": The molecule object at index " + i
+                        + " occurs more than once in atomContainerArray, use a copy instead.");
             }
             //do nothing if a molecule is empty
         }
@@ -1511,7 +1593,7 @@ public final class DescriptorCalculator {
      * @throws NullPointerException if the matrix or one of its rows is null
      * @throws IllegalArgumentException if matrix dimensions are invalid
      */
-    static void validateMatrix(
+    void validateMatrix(
             float[][] matrix,
             Descriptor[] descriptors,
             Object[] moleculeArray,
@@ -1547,7 +1629,7 @@ public final class DescriptorCalculator {
             if (startIndex > vector.length) {
                 throw new IllegalArgumentException(methodName + ": startIndex is greater than or equal to vector length.");
             }
-            int numberOfComponents = Descriptor.getNumberOfComponents(descriptors);
+            int numberOfComponents = this.getNumberOfComponents(descriptors);
             if (startIndex + numberOfComponents > vector.length) {
                 throw new IllegalArgumentException(methodName + ": Not enough space in vector for descriptors.");
             }
