@@ -133,13 +133,12 @@
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>cdk-data</artifactId>
+            <artifactId>cdk-silent</artifactId>
             <version>${project.parent.version}</version>
-            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>cdk-silent</artifactId>
+            <artifactId>cdk-data</artifactId>
             <version>${project.parent.version}</version>
             <scope>test</scope>
         </dependency>
@@ -179,6 +178,11 @@
             <artifactId>cdk-pdb</artifactId>
             <version>${project.parent.version}</version>
             <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>cdk-qsarprotein</artifactId>
+            <version>${project.parent.version}</version>
         </dependency>
     </dependencies>
 
