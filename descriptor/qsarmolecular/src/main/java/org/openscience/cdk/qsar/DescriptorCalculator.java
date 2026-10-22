@@ -446,6 +446,50 @@ public final class DescriptorCalculator {
     }
 
     /**
+     * Returns the type of the values of all components of the given descriptor for this calculator: for circular
+     * fingerprints (CIRCULAR_FINGERPRINTER_*), {@link DescriptorComponentType#COUNT} if this calculator calculates
+     * them as folded count fingerprints, otherwise the type defined in the enum, see
+     * {@link Descriptor#getComponentType()} (e.g. {@link DescriptorComponentType#BINARY} for circular fingerprints in
+     * the default bit mode).
+     *
+     * @param descriptor the descriptor (IS NOT CHANGED); may not be null
+     * @return the type of the values of all components of the descriptor
+     * @throws NullPointerException if descriptor is null
+     */
+    public DescriptorComponentType getComponentType(Descriptor descriptor) {
+        if (descriptor == null) {
+            throw new NullPointerException("DescriptorCalculator.getComponentType: descriptor is null.");
+        }
+        if (this.isCircularFingerprintCounts && descriptor.name().startsWith("CIRCULAR_FINGERPRINTER_")) {
+            return DescriptorComponentType.COUNT;
+        }
+        return descriptor.getComponentType();
+    }
+
+    /**
+     * Returns the type of the values of every matrix column for the given descriptors, in the order of the columns,
+     * i.e. the i-th type belongs to column startIndex + i of a matrix calculated by this calculator with the same
+     * descriptor array (see {@link #getComponentType(Descriptor)}). The types can be used together with the column
+     * names (see {@link #getColumnNames(Descriptor[])}), e.g. for choosing a suitable preprocessing of each column
+     * before machine learning. The number of types is equal to {@link #getNumberOfComponents(Descriptor[])}.
+     *
+     * @param descriptors Array of descriptors (IS NOT CHANGED); if it is empty, an empty array is returned;
+     *                     may not be null (the array or one of its elements)
+     * @return the component types, one per column
+     * @throws NullPointerException if descriptors or one of its elements is null
+     */
+    public DescriptorComponentType[] getComponentTypes(Descriptor[] descriptors) {
+        DescriptorComponentType[] componentTypes = new DescriptorComponentType[this.getNumberOfComponents(descriptors)];
+        int startIndex = 0;
+        for (Descriptor descriptor : descriptors) {
+            int endIndex = startIndex + this.getNumberOfComponents(descriptor);
+            Arrays.fill(componentTypes, startIndex, endIndex, this.getComponentType(descriptor));
+            startIndex = endIndex;
+        }
+        return componentTypes;
+    }
+
+    /**
      * Returns the descriptor and component index for a given column index of a matrix calculated by this calculator
      * with the given descriptor array (see {@link Descriptor#getDescriptorAndComponentIndex(Descriptor[], int)}, which
      * uses the default circular fingerprint size).

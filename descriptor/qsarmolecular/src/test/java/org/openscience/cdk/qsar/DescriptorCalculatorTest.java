@@ -3945,4 +3945,104 @@ class DescriptorCalculatorTest {
         Assertions.assertThrows(NullPointerException.class, () -> CALCULATOR.getColumnNames(null));
         Assertions.assertThrows(NullPointerException.class, () -> CALCULATOR.getColumnNames(new Descriptor[]{Descriptor.MOLECULAR_WEIGHT, null}));
     }
+
+    /**
+     * Tests getComponentType() and getComponentTypes(): every descriptor has a type, all fingerprints are binary by
+     * default (also the circular fingerprints), and only the circular fingerprints become counts in count mode; the
+     * types are returned per column in the order of the columns, i.e. with the same length as the column names, also
+     * for a non-default circular fingerprint size; empty and null input.
+     */
+    @Test
+    void test_getComponentTypes() {
+        for (Descriptor descriptor : Descriptor.values()) {
+            Assertions.assertNotNull(descriptor.getComponentType(), descriptor.name());
+            Assertions.assertEquals(descriptor.getComponentType(), CALCULATOR.getComponentType(descriptor), descriptor.name());
+            Assertions.assertEquals(descriptor.isFingerprint(), descriptor.getComponentType() == DescriptorComponentType.BINARY, descriptor.name());
+        }
+        Assertions.assertEquals(DescriptorComponentType.CONTINUOUS, Descriptor.MOLECULAR_WEIGHT.getComponentType());
+        Assertions.assertEquals(DescriptorComponentType.COUNT, Descriptor.ATOM_COUNT_C.getComponentType());
+        Assertions.assertEquals(DescriptorComponentType.BINARY, Descriptor.CIRCULAR_FINGERPRINTER_ECFP_4.getComponentType());
+
+        // one type per column, in the order of the columns
+        Descriptor[] descriptors = new Descriptor[]{Descriptor.MOLECULAR_WEIGHT, Descriptor.ATOM_COUNT_C, Descriptor.MACCS_FINGERPRINTER, Descriptor.WIENER_NUMBER};
+        DescriptorComponentType[] types = CALCULATOR.getComponentTypes(descriptors);
+        Assertions.assertEquals(CALCULATOR.getNumberOfComponents(descriptors), types.length);
+        Assertions.assertEquals(CALCULATOR.getColumnNames(descriptors).length, types.length);
+        Assertions.assertEquals(DescriptorComponentType.CONTINUOUS, types[0]);
+        Assertions.assertEquals(DescriptorComponentType.COUNT, types[1]);
+        for (int i = 2; i < 2 + 166; i++) {
+            Assertions.assertEquals(DescriptorComponentType.BINARY, types[i], "column " + i);
+        }
+        Assertions.assertEquals(DescriptorComponentType.CONTINUOUS, types[168]);
+        Assertions.assertEquals(DescriptorComponentType.CONTINUOUS, types[169]);
+        Assertions.assertEquals(CALCULATOR.getNumberOfComponents(Descriptor.values()), CALCULATOR.getComponentTypes(Descriptor.values()).length);
+
+        // count mode: only the circular fingerprints become counts; a non-default size changes the number of types
+        DescriptorCalculator countCalculator = new DescriptorCalculator(DescriptorCalculator.DEFAULT_FINGERPRINT_POOL_SIZE, 2048, true);
+        for (Descriptor descriptor : Descriptor.values()) {
+            DescriptorComponentType expected = descriptor.name().startsWith("CIRCULAR_FINGERPRINTER_")
+                    ? DescriptorComponentType.COUNT : descriptor.getComponentType();
+            Assertions.assertEquals(expected, countCalculator.getComponentType(descriptor), descriptor.name());
+        }
+        Descriptor[] fingerprints = new Descriptor[]{Descriptor.PUBCHEM_FINGERPRINTER, Descriptor.CIRCULAR_FINGERPRINTER_ECFP_4};
+        DescriptorComponentType[] countTypes = countCalculator.getComponentTypes(fingerprints);
+        Assertions.assertEquals(881 + 2048, countTypes.length);
+        Assertions.assertEquals(DescriptorComponentType.BINARY, countTypes[880]);
+        Assertions.assertEquals(DescriptorComponentType.COUNT, countTypes[881]);
+        Assertions.assertEquals(DescriptorComponentType.COUNT, countTypes[881 + 2047]);
+
+        // empty and null input
+        Assertions.assertEquals(0, CALCULATOR.getComponentTypes(new Descriptor[0]).length);
+        Assertions.assertThrows(NullPointerException.class, () -> CALCULATOR.getComponentType(null));
+        Assertions.assertThrows(NullPointerException.class, () -> CALCULATOR.getComponentTypes(null));
+        Assertions.assertThrows(NullPointerException.class, () -> CALCULATOR.getComponentTypes(new Descriptor[]{Descriptor.MOLECULAR_WEIGHT, null}));
+    }
+
+    /**
+     * Tests that the calculated values match the component types of all 2D descriptors and fingerprints for a set of
+     * different molecules: binary components are 0 or 1, count components are non-negative integers (NaN values of
+     * failed calculations are skipped). In count mode, the circular fingerprints are counts, and counts greater than
+     * 1 occur.
+     *
+     * @throws Exception if anything goes wrong
+     */
+    @Test
+    void test_ComponentTypeValues() throws Exception {
+        String[] smiles = new String[]{
+                "CC(=O)Nc1ccc(O)cc1", // Paracetamol CID: 1983
+                "CN1C=NC2=C1C(=O)N(C(=O)N2C)C", // Caffeine CID: 2519
+                "NC(Cc1ccccc1)C(=O)O", // Phenylalanine CID: 6140
+                "NCC(=O)NC(C)C(=O)NC(CO)C(=O)O", // Gly-Ala-Ser tripeptide
+                "C1CCC2(CC1)CCCC2", // Spiro[4.5]decane CID: 135980
+                "CCOP(=S)(OCC)SC", // P and S containing ester
+                "Brc1ccc(Cl)cc1I", // halogenated benzene
+                "N#Cc1ccccc1C(F)(F)F", // nitrile and trifluoromethyl group
+                "c1ccccc1CCc1ccccc1" // 1,2-Diphenylethane CID: 7647
+        };
+        Descriptor[] descriptors = Descriptor.getSpecifiedDescriptors(true, true, true, false);
+        for (DescriptorCalculator calculator : new DescriptorCalculator[]{CALCULATOR, new DescriptorCalculator(1, 1024, true)}) {
+            float[][] matrix = new float[smiles.length][calculator.getNumberOfComponents(descriptors)];
+            calculator.setDescriptorsForMoleculesBySmilesStringParallelization(descriptors, smiles, matrix, 0, null, false, new ArrayList<>());
+            DescriptorComponentType[] types = calculator.getComponentTypes(descriptors);
+            String[] names = calculator.getColumnNames(descriptors);
+            boolean hasCountGreaterThanOne = false;
+            for (int j = 0; j < types.length; j++) {
+                for (int i = 0; i < smiles.length; i++) {
+                    float value = matrix[i][j];
+                    if (Float.isNaN(value) || types[j] == DescriptorComponentType.CONTINUOUS) {
+                        continue;
+                    }
+                    String message = names[j] + " for " + smiles[i] + ": " + value;
+                    if (types[j] == DescriptorComponentType.BINARY) {
+                        Assertions.assertTrue(value == 0.0f || value == 1.0f, message);
+                    } else {
+                        Assertions.assertTrue(value >= 0.0f && value == Math.rint(value), message);
+                        hasCountGreaterThanOne |= names[j].startsWith("ECFP") && value > 1.0f;
+                    }
+                }
+            }
+            Assertions.assertEquals(calculator.isCircularFingerprintCounts(), hasCountGreaterThanOne,
+                    "counts greater than 1 in circular fingerprints only in count mode");
+        }
+    }
 }
