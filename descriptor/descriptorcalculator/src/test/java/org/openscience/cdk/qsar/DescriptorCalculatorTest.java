@@ -3664,6 +3664,57 @@ class DescriptorCalculatorTest {
     }
 
     /**
+     * Tests that an interruption of the calling thread during a parallel calculation never leaves silently unfilled
+     * rows: the calling thread takes part in the parallel stream, and the fingerprint calculations on it fail because
+     * of the interruption. Every row must either be equal to the calculation without interruption or be NaN for all
+     * its components (recorded in the NaN positions), the method must return false, and the interrupt status of the
+     * calling thread must be preserved. Tested for molecule and batch parallelization of IAtomContainer arrays.
+     *
+     * @throws Exception if anything goes wrong
+     */
+    @Test
+    void test_InterruptedParallelCalculation_YieldsNaNRows() throws Exception {
+        int numberOfMolecules = 200;
+        IAtomContainer[] molecules = DescriptorCalculatorTest.createPropionicAcidMolecules(numberOfMolecules);
+        Descriptor[] descriptors = new Descriptor[]{Descriptor.MOLECULAR_WEIGHT, Descriptor.MACCS_FINGERPRINTER};
+        int numberOfComponents = CALCULATOR.getNumberOfComponents(descriptors);
+        float[][] reference = new float[numberOfMolecules][numberOfComponents];
+        Assertions.assertTrue(CALCULATOR.setDescriptorsForMoleculesByMoleculeParallelization(descriptors, molecules, reference, 0, false, new ArrayList<>()));
+
+        for (boolean isBatch : new boolean[]{false, true}) {
+            String context = "batch=" + isBatch;
+            float[][] matrix = new float[numberOfMolecules][numberOfComponents];
+            List<int[]> nanPositions = new ArrayList<>();
+            boolean isSuccessful;
+            Thread.currentThread().interrupt();
+            try {
+                isSuccessful = isBatch
+                        ? CALCULATOR.setDescriptorsForMoleculesByBatchParallelization(descriptors, molecules, matrix, 0, 10, true, nanPositions)
+                        : CALCULATOR.setDescriptorsForMoleculesByMoleculeParallelization(descriptors, molecules, matrix, 0, true, nanPositions);
+                Assertions.assertTrue(Thread.currentThread().isInterrupted(), "interrupt status must be preserved, " + context);
+            } finally {
+                Thread.interrupted(); // clear the interrupt status for the following tests
+            }
+
+            Assertions.assertFalse(isSuccessful, context);
+            List<Integer> nanRows = new ArrayList<>();
+            for (int row = 0; row < numberOfMolecules; row++) {
+                if (Float.isNaN(matrix[row][0])) {
+                    nanRows.add(row);
+                } else {
+                    Assertions.assertArrayEquals(reference[row], matrix[row], "row " + row + " must be complete, " + context);
+                }
+            }
+            Assertions.assertFalse(nanRows.isEmpty(), "the calling thread calculates some molecules, " + context);
+            int[] nanRowIndices = new int[nanRows.size()];
+            for (int i = 0; i < nanRowIndices.length; i++) {
+                nanRowIndices[i] = nanRows.get(i);
+            }
+            DescriptorCalculatorTest.assertNaNRows(matrix, nanRowIndices, nanPositions, context);
+        }
+    }
+
+    /**
      * Tests that a StackOverflowError inside a CDK descriptor only costs the values of this descriptor: the weighted
      * path descriptor enumerates paths recursively, so for a chain of 10,000 carbon atoms it overflows a 256 KB thread
      * stack (for very large molecules, this also happens with the default stack size). The calculation must yield

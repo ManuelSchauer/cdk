@@ -800,7 +800,8 @@ public final class DescriptorCalculator {
      * @throws InterruptedException if the current thread is interrupted during sequential fingerprint
      *                              calculation; in parallel mode, interruption is handled internally
      *                              by restoring the thread's interrupt flag via
-     *                              {@link Thread#interrupt()} and the affected batch is aborted silently
+     *                              {@link Thread#interrupt()}, and the molecules that cannot be calculated
+     *                              because of the interruption yield NaN for all their components
      */
     public boolean setDescriptorsForMoleculesByBatchParallelization(
             Descriptor[] descriptors,
@@ -874,8 +875,11 @@ public final class DescriptorCalculator {
                                 hasNaN.set(true);
                             }
                         } catch (InterruptedException exception) {
-                            Thread.currentThread().interrupt(); // Preserve interrupt status
-                            return;
+                            // keep the interrupt status for the caller and mark the molecule as failed (NaN),
+                            // so that an incomplete result is never reported as complete
+                            Thread.currentThread().interrupt();
+                            hasNaN.set(true);
+                            this.setNaNForMolecule(descriptors, matrix[i], startIndices, i, collectedNanPositions);
                         } catch (Exception exception) {
                             hasNaN.set(true);
                             this.setNaNForMolecule(descriptors, matrix[i], startIndices, i, collectedNanPositions);
@@ -951,7 +955,8 @@ public final class DescriptorCalculator {
      * @throws InterruptedException if the current thread is interrupted during sequential fingerprint
      *                              calculation; in parallel mode, interruption is handled internally
      *                              by restoring the thread's interrupt flag via
-     *                              {@link Thread#interrupt()} and the affected batch is aborted silently
+     *                              {@link Thread#interrupt()}, and the molecules that cannot be calculated
+     *                              because of the interruption yield NaN for all their components
      */
     public boolean setDescriptorsForMoleculeBySmilesStringsBatchParallelization(
             Descriptor[] descriptors,
@@ -1022,8 +1027,11 @@ public final class DescriptorCalculator {
                                 hasNaN.set(true);
                             }
                         } catch (InterruptedException exception) {
-                            Thread.currentThread().interrupt(); // Preserve interrupt status
-                            return;
+                            // keep the interrupt status for the caller and mark the molecule as failed (NaN),
+                            // so that an incomplete result is never reported as complete
+                            Thread.currentThread().interrupt();
+                            hasNaN.set(true);
+                            this.setNaNForMolecule(descriptors, matrix[i], startIndices, i, collectedNanPositions);
                         } catch (Exception exception) {
                             hasNaN.set(true);
                             this.setNaNForMolecule(descriptors, matrix[i], startIndices, i, collectedNanPositions);
@@ -1098,7 +1106,8 @@ public final class DescriptorCalculator {
      * @throws InterruptedException if the current thread is interrupted during sequential fingerprint
      *                              calculation; in parallel mode, interruption is handled internally
      *                              by restoring the thread's interrupt flag via
-     *                              {@link Thread#interrupt()} and the affected molecule is skipped silently
+     *                              {@link Thread#interrupt()}, and the molecules that cannot be calculated
+     *                              because of the interruption yield NaN for all their components
      */
     public boolean setDescriptorsForMoleculesByMoleculeParallelization(
             Descriptor[] descriptors,
@@ -1164,7 +1173,11 @@ public final class DescriptorCalculator {
                                     hasNaN.set(true);
                                 }
                             } catch (InterruptedException exception) {
-                                Thread.currentThread().interrupt(); // Preserve interrupt status
+                                // keep the interrupt status for the caller and mark the molecule as failed (NaN),
+                                // so that an incomplete result is never reported as complete
+                                Thread.currentThread().interrupt();
+                                hasNaN.set(true);
+                                this.setNaNForMolecule(descriptors, matrix[i], startIndices, i, collectedNanPositions);
                             } catch (Exception exception) {
                                 hasNaN.set(true);
                                 this.setNaNForMolecule(descriptors, matrix[i], startIndices, i, collectedNanPositions);
@@ -1238,7 +1251,8 @@ public final class DescriptorCalculator {
      * @throws InterruptedException if the current thread is interrupted during sequential fingerprint
      *                              calculation; in parallel mode, interruption is handled internally
      *                              by restoring the thread's interrupt flag via
-     *                              {@link Thread#interrupt()} and the affected molecule is skipped silently
+     *                              {@link Thread#interrupt()}, and the molecules that cannot be calculated
+     *                              because of the interruption yield NaN for all their components
      */
     public boolean setDescriptorsForMoleculesBySmilesStringParallelization(
             Descriptor[] descriptors,
@@ -1301,7 +1315,11 @@ public final class DescriptorCalculator {
                                     hasNaN.set(true);
                                 }
                             } catch (InterruptedException exception) {
-                                Thread.currentThread().interrupt(); // Preserve interrupt status
+                                // keep the interrupt status for the caller and mark the molecule as failed (NaN),
+                                // so that an incomplete result is never reported as complete
+                                Thread.currentThread().interrupt();
+                                hasNaN.set(true);
+                                this.setNaNForMolecule(descriptors, matrix[i], startIndices, i, collectedNanPositions);
                             } catch (Exception exception) {
                                 hasNaN.set(true);
                                 this.setNaNForMolecule(descriptors, matrix[i], startIndices, i, collectedNanPositions);
