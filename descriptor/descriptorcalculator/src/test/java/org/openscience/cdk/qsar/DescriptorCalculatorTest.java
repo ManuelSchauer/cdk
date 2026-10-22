@@ -68,6 +68,7 @@ import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -3307,7 +3308,7 @@ class DescriptorCalculatorTest {
     @Test
     void test_Configuration() {
         Assertions.assertEquals(DescriptorCalculator.DEFAULT_FINGERPRINT_POOL_SIZE, CALCULATOR.getFingerprintPoolSize());
-        Assertions.assertEquals(4, CALCULATOR.getFingerprintPoolSize());
+        Assertions.assertEquals(ForkJoinPool.getCommonPoolParallelism() + 1, CALCULATOR.getFingerprintPoolSize());
         Assertions.assertEquals(1024, CALCULATOR.getCircularFingerprintSize());
         Assertions.assertFalse(CALCULATOR.isCircularFingerprintCounts());
 

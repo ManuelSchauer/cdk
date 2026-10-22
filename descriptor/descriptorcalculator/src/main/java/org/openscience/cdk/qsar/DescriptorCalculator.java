@@ -53,6 +53,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.IntStream;
 
@@ -138,8 +139,9 @@ import java.util.stream.IntStream;
  *     <br><br>
  *     Thread safety for fingerprints is handled internally via a pool of
  *     {@link IFingerprinter} instances (one pool per fingerprint descriptor),
- *     because CDK fingerprinter objects are not thread-safe. The pool size defaults to 4 and can be adjusted
- *     with {@link #DescriptorCalculator(int, int, boolean)}.
+ *     because CDK fingerprinter objects are not thread-safe. By default, the pool size is the parallelism of the
+ *     common fork-join pool plus one (see {@link #DEFAULT_FINGERPRINT_POOL_SIZE}), so that no calculation thread has
+ *     to wait for a fingerprinter instance; it can be adjusted with {@link #DescriptorCalculator(int, int, boolean)}.
  * <p>
  *     A calculator object holds its configuration (fingerprint pool size, circular fingerprint size and bit or count
  *     mode for circular fingerprints) and its CDK descriptor and fingerprinter instances. The configuration is fixed
@@ -248,9 +250,12 @@ public final class DescriptorCalculator {
     private static final SmilesParser SMILES_PARSER = new SmilesParser(SilentChemObjectBuilder.getInstance());
 
     /**
-     * Default pool size for fingerprinter instances, which should be sufficient for regular users.
+     * Default pool size for fingerprinter instances: the parallelism of the common fork-join pool, which runs the
+     * parallel calculations, plus one for the calling thread, which takes part in them. So no calculation thread has
+     * to wait for a fingerprinter instance. Note: The value depends on the number of processors of the machine; the
+     * pool size does not change the results, only the speed of fingerprint calculations.
      */
-    public static final int DEFAULT_FINGERPRINT_POOL_SIZE = 4;
+    public static final int DEFAULT_FINGERPRINT_POOL_SIZE = ForkJoinPool.getCommonPoolParallelism() + 1;
 
     /**
      * Pool size for fingerprinter instances, i.e. number of fingerprinter instances per fingerprint "descriptor".
@@ -289,8 +294,8 @@ public final class DescriptorCalculator {
      * descriptor and fingerprinter instances, so a calculator should be reused for many calculations.
      * <p>
      * The fingerprint pool size is the number of fingerprinter instances per fingerprint "descriptor", because CDK
-     * fingerprinter instances are not thread-safe. Increasing the pool size can improve performance in highly
-     * parallel environments but increases memory usage.
+     * fingerprinter instances are not thread-safe. With a pool size smaller than the number of calculation threads,
+     * threads have to wait for a fingerprinter instance; a larger pool size only increases the memory usage slightly.
      * <p>
      * In count mode, all circular fingerprint "descriptors" (CIRCULAR_FINGERPRINTER_*) are calculated as folded count
      * fingerprints instead of bit fingerprints. The count fingerprint of the CDK CircularFingerprinter is not folded,
@@ -529,7 +534,7 @@ public final class DescriptorCalculator {
     /**
      * Returns the descriptor name, the component index and the component name (column name, see
      * {@link #getColumnNames(Descriptor[])}) for a given column index of a matrix calculated by this calculator with
-     * the given descriptor array, e.g. ["Wiener Numbers", "1", "WPOL"].
+     * the given descriptor array, e.g. ["Wiener Number", "1", "WPOL"].
      *
      * @param descriptors Array of descriptors (must not be null or empty; its elements must not be null)
      * @param anIndex The column index relative to the start index of the descriptors (must be &gt;= 0 and &lt; total
@@ -685,7 +690,9 @@ public final class DescriptorCalculator {
      * set to {@link Float#NaN}.
      *
      * @param descriptor The descriptor to calculate (must not be null)
-     * @param molecule The molecule to calculate the descriptor for (must not be null); if it is empty, NaN values are returned
+     * @param molecule The molecule to calculate the descriptor for (must not be null; IS CHANGED: its aromaticity is
+     *                  perceived with the given model and explicit hydrogens are suppressed, see
+     *                  {@link #setAromaticity(IAtomContainer, ElectronDonation)}); if it is empty, NaN values are returned
      * @param electronDonationModel The electron donation model to use for aromaticity perception (must not be null)
      * @return A float array containing the calculated descriptor components. Length equals
      *         {@link #getNumberOfComponents(Descriptor)}. Contains NaN values if calculation fails.
