@@ -183,6 +183,11 @@ final class FingerprintCalculation implements DescriptorCalculation {
         } catch (CDKException | RuntimeException exception) {
             LOGGER.warn("Failed to calculate: " + descriptor.name(), exception);
             return false;
+        } catch (StackOverflowError error) {
+            // deep recursion of a CDK algorithm for a very large molecule; the stack is unwound here, so only this
+            // fingerprint of this molecule fails instead of the whole calculation
+            LOGGER.warn("Failed to calculate: " + descriptor.name() + " (stack overflow)");
+            return false;
         } finally {
             // always back to the pool it was taken from; the pool cannot be full here
             this.pool.offer(fingerprinter);

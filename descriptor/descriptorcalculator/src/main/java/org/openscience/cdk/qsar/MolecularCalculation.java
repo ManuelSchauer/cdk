@@ -156,6 +156,12 @@ final class MolecularCalculation implements DescriptorCalculation {
         } catch (Exception exception) {
             LOGGER.error("Descriptor ", descriptor.name(), " failed to calculate: ", exception.getMessage());
             return false;
+        } catch (StackOverflowError error) {
+            // deep recursion of a CDK algorithm for a very large molecule (e.g. the path enumeration of the weighted
+            // path descriptor for a chain of several thousand atoms); the stack is unwound here, so only this
+            // descriptor of this molecule fails instead of the whole calculation
+            LOGGER.error("Descriptor ", descriptor.name(), " failed to calculate: stack overflow");
+            return false;
         }
     }
 }

@@ -68,6 +68,7 @@ import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Test class for DescriptorCalculator class. This class first tests all the descriptors included in the {@link Descriptor} class
@@ -3660,6 +3661,63 @@ class DescriptorCalculatorTest {
                 DescriptorCalculatorTest.assertNaNRows(matrix, new int[]{1, 3}, nanPositions, context);
             }
         }
+    }
+
+    /**
+     * Tests that a StackOverflowError inside a CDK descriptor only costs the values of this descriptor: the weighted
+     * path descriptor enumerates paths recursively, so for a chain of 10,000 carbon atoms it overflows a 256 KB thread
+     * stack (for very large molecules, this also happens with the default stack size). The calculation must yield
+     * NaN for the weighted path components (recorded in the NaN positions), calculate the molecular weight of the same
+     * molecule correctly and not throw.
+     *
+     * @throws Exception if anything goes wrong
+     */
+    @Test
+    void test_StackOverflowInDescriptor_YieldsNaN() throws Exception {
+        StringBuilder chain = new StringBuilder();
+        for (int i = 0; i < 10000; i++) {
+            chain.append('C');
+        }
+        IAtomContainer molecule = new SmilesParser(SilentChemObjectBuilder.getInstance()).parseSmiles(chain.toString());
+        DescriptorCalculator.setAromaticity(molecule, Aromaticity.Model.Daylight);
+        Descriptor[] descriptors = new Descriptor[]{Descriptor.MOLECULAR_WEIGHT, Descriptor.WEIGHTED_PATH};
+        float[][] matrix = new float[1][CALCULATOR.getNumberOfComponents(descriptors)];
+        List<int[]> nanPositions = new ArrayList<>();
+        AtomicReference<Boolean> isSuccessful = new AtomicReference<>();
+        AtomicReference<Throwable> error = new AtomicReference<>();
+        // sequential calculation in a thread with a small stack, so that the recursion overflows it
+        Thread thread = new Thread(null, () -> {
+            try {
+                isSuccessful.set(CALCULATOR.setDescriptorsForMoleculesByMoleculeParallelization(
+                        descriptors, new IAtomContainer[]{molecule}, matrix, 0, false, nanPositions));
+            } catch (Throwable throwable) {
+                error.set(throwable);
+            }
+        }, "small-stack", 256 * 1024);
+        thread.start();
+        thread.join();
+
+        Assertions.assertNull(error.get(), "the stack overflow must not escape the calculation");
+        Assertions.assertFalse(isSuccessful.get());
+        Assertions.assertEquals(CALCULATOR.calculateDescriptor(Descriptor.MOLECULAR_WEIGHT, molecule)[0], matrix[0][0],
+                "molecular weight is calculated as usual");
+        DescriptorCalculatorTest.assertNaNRows(new float[][]{Arrays.copyOfRange(matrix[0], 1, matrix[0].length)},
+                new int[]{0}, DescriptorCalculatorTest.shiftColumns(nanPositions, -1), "weighted path");
+    }
+
+    /**
+     * Returns a copy of the NaN positions with the column index shifted by the given offset.
+     *
+     * @param nanPositions the NaN positions
+     * @param offset the offset added to the column index
+     * @return the shifted NaN positions
+     */
+    private static List<int[]> shiftColumns(List<int[]> nanPositions, int offset) {
+        List<int[]> shifted = new ArrayList<>();
+        for (int[] position : nanPositions) {
+            shifted.add(new int[]{position[0], position[1] + offset});
+        }
+        return shifted;
     }
 
     /**
