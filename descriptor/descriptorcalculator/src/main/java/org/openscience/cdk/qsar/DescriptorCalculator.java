@@ -795,8 +795,8 @@ public final class DescriptorCalculator {
      *         occurred, or the calculation was aborted before it started
      *         because the given descriptor or molecule array is empty or a descriptor requires 3D coordinates that are
      *         not available (in this case, the matrix is not changed)
-     * @throws IllegalArgumentException if the matrix dimensions are invalid, if batch size is &lt;= 0 or if a
-     *                                  molecule object occurs more than once in atomContainerArray
+     * @throws IllegalArgumentException if the matrix dimensions or the start index are invalid, if batch size is
+     *                                  &lt;= 0 or if a molecule object occurs more than once in atomContainerArray
      * @throws InterruptedException if the current thread is interrupted during sequential fingerprint
      *                              calculation; in parallel mode, interruption is handled internally
      *                              by restoring the thread's interrupt flag via
@@ -951,7 +951,8 @@ public final class DescriptorCalculator {
      *         occurred, or the calculation was aborted before it started
      *         because the given descriptor or molecule array is empty or a descriptor requires 3D coordinates that are
      *         not available (in this case, the matrix is not changed)
-     * @throws IllegalArgumentException if the matrix dimensions are invalid or if batch size is &lt;= 0
+     * @throws IllegalArgumentException if the matrix dimensions or the start index are invalid or if batch size is
+     *                                  &lt;= 0
      * @throws InterruptedException if the current thread is interrupted during sequential fingerprint
      *                              calculation; in parallel mode, interruption is handled internally
      *                              by restoring the thread's interrupt flag via
@@ -1101,8 +1102,8 @@ public final class DescriptorCalculator {
      *         occurred, or the calculation was aborted before it started
      *         because the given descriptor or molecule array is empty or a descriptor requires 3D coordinates that are
      *         not available (in this case, the matrix is not changed)
-     * @throws IllegalArgumentException if the matrix dimensions are invalid or if a molecule object occurs
-     *                                  more than once in atomContainerArray
+     * @throws IllegalArgumentException if the matrix dimensions or the start index are invalid or if a molecule
+     *                                  object occurs more than once in atomContainerArray
      * @throws InterruptedException if the current thread is interrupted during sequential fingerprint
      *                              calculation; in parallel mode, interruption is handled internally
      *                              by restoring the thread's interrupt flag via
@@ -1247,7 +1248,7 @@ public final class DescriptorCalculator {
      *         occurred, or the calculation was aborted before it started
      *         because the given descriptor or molecule array is empty or a descriptor requires 3D coordinates that are
      *         not available (in this case, the matrix is not changed)
-     * @throws IllegalArgumentException if the matrix dimensions are invalid
+     * @throws IllegalArgumentException if the matrix dimensions or the start index are invalid
      * @throws InterruptedException if the current thread is interrupted during sequential fingerprint
      *                              calculation; in parallel mode, interruption is handled internally
      *                              by restoring the thread's interrupt flag via
@@ -1695,7 +1696,9 @@ public final class DescriptorCalculator {
 
     /**
      * Validates matrix dimensions and start index. Throws a NullPointerException if the matrix or one of its rows is
-     * null. Returns false if the matrix is empty. Note that some parameters like {@code descriptors} have their own validation methods.
+     * null and an IllegalArgumentException if the matrix is empty, its dimensions are invalid or the start index is
+     * negative or leaves too few columns. Note that some parameters like {@code descriptors} have their own validation
+     * methods.
      *
      * @param matrix the matrix to validate
      * @param descriptors the descriptors intended to be calculated for validating the matrix dimensions (min. nr. of columns)
@@ -1704,7 +1707,8 @@ public final class DescriptorCalculator {
      * @param startIndex the start index in the matrix (starting there, enough columns must be left to fit all descriptor results)
      * @param methodName the calling method name for error messages
      * @throws NullPointerException if the matrix or one of its rows is null
-     * @throws IllegalArgumentException if matrix dimensions are invalid
+     * @throws IllegalArgumentException if the matrix dimensions are invalid or the start index is negative or leaves
+     *                                  too few columns
      */
     void validateMatrix(
             float[][] matrix,
@@ -1725,6 +1729,10 @@ public final class DescriptorCalculator {
         if (!(moleculeArray instanceof IAtomContainer[]) && !(moleculeArray instanceof String[])) {
             throw new IllegalArgumentException(methodName + ": moleculeArray must be an IAtomContainer[] or a String[].");
         }
+        if (startIndex < 0) {
+            throw new IllegalArgumentException(methodName + ": startIndex must not be negative but was " + startIndex + ".");
+        }
+        int numberOfComponents = this.getNumberOfComponents(descriptors);
         int colNum = -1;
         for (float[] vector : matrix) {
             if (vector == null) {
@@ -1739,10 +1747,6 @@ public final class DescriptorCalculator {
             if (vector.length != colNum) {
                 throw new IllegalArgumentException(methodName + ": All vectors in matrix must have the same length.");
             }
-            if (startIndex > vector.length) {
-                throw new IllegalArgumentException(methodName + ": startIndex is greater than or equal to vector length.");
-            }
-            int numberOfComponents = this.getNumberOfComponents(descriptors);
             if (startIndex + numberOfComponents > vector.length) {
                 throw new IllegalArgumentException(methodName + ": Not enough space in vector for descriptors.");
             }
@@ -1762,6 +1766,8 @@ public final class DescriptorCalculator {
      *     <li>Bond endpoints are resolved through an explicit original-to-copy atom map, so no
      *         assumption is made about identical atom indices in both containers.</li>
      *     <li>If needed, atom types must be perceived and configured manually after creation.</li>
+     *     <li>Lone pairs are not copied: no descriptor of the {@link Descriptor} enum reads them, and descriptors
+     *         that need them (e.g. BCUT) determine them on their own working copy.</li>
      * </ul>
      *
      * @param molecule Source molecule to be copied (NOT MODIFIED)
@@ -1781,7 +1787,7 @@ public final class DescriptorCalculator {
             if (molecule.getProperties() != null) {
                 moleculeCopy.addProperties(new HashMap<>(molecule.getProperties()));
             }
-            // Explicit original -> copy maps; used for bonds, stereo elements, electrons and lone pairs.
+            // Explicit original -> copy maps; used for bonds, stereo elements and single electrons.
             int atomCapacity = Math.max(16, (int) (molecule.getAtomCount() / 0.75f) + 1);
             int bondCapacity = Math.max(16, (int) (molecule.getBondCount() / 0.75f) + 1);
             Map<IAtom, IAtom> atomMap = new HashMap<>(atomCapacity);

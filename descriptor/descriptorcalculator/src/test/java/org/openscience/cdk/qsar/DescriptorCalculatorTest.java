@@ -3715,6 +3715,32 @@ class DescriptorCalculatorTest {
     }
 
     /**
+     * Tests that a negative start index is rejected with an IllegalArgumentException by all four matrix methods,
+     * sequential and parallel, before the matrix is changed.
+     *
+     * @throws Exception if anything goes wrong
+     */
+    @Test
+    void test_NegativeStartIndex_Throws() throws Exception {
+        SmilesParser smilesParser = new SmilesParser(SilentChemObjectBuilder.getInstance());
+        IAtomContainer[] molecules = new IAtomContainer[]{smilesParser.parseSmiles("CCO"), smilesParser.parseSmiles("c1ccccc1")};
+        String[] smiles = new String[]{"CCO", "c1ccccc1"};
+        Descriptor[] descriptors = new Descriptor[]{Descriptor.MOLECULAR_WEIGHT, Descriptor.ATOM_COUNT};
+        for (boolean isParallel : new boolean[]{false, true}) {
+            float[][] matrix = new float[2][CALCULATOR.getNumberOfComponents(descriptors) + 1];
+            Assertions.assertThrows(IllegalArgumentException.class, () -> CALCULATOR.setDescriptorsForMoleculesByMoleculeParallelization(
+                    descriptors, molecules, matrix, -1, isParallel, new ArrayList<>()));
+            Assertions.assertThrows(IllegalArgumentException.class, () -> CALCULATOR.setDescriptorsForMoleculesByBatchParallelization(
+                    descriptors, molecules, matrix, -1, 1, isParallel, new ArrayList<>()));
+            Assertions.assertThrows(IllegalArgumentException.class, () -> CALCULATOR.setDescriptorsForMoleculesBySmilesStringParallelization(
+                    descriptors, smiles, matrix, -1, null, isParallel, new ArrayList<>()));
+            Assertions.assertThrows(IllegalArgumentException.class, () -> CALCULATOR.setDescriptorsForMoleculeBySmilesStringsBatchParallelization(
+                    descriptors, smiles, matrix, -1, 1, null, isParallel, new ArrayList<>()));
+            Assertions.assertArrayEquals(new float[2][CALCULATOR.getNumberOfComponents(descriptors) + 1], matrix, "matrix must not be changed");
+        }
+    }
+
+    /**
      * Tests that a StackOverflowError inside a CDK descriptor only costs the values of this descriptor: the weighted
      * path descriptor enumerates paths recursively, so for a chain of 10,000 carbon atoms it overflows a 256 KB thread
      * stack (for very large molecules, this also happens with the default stack size). The calculation must yield
