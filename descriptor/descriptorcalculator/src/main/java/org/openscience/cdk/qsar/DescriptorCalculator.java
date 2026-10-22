@@ -418,10 +418,8 @@ public final class DescriptorCalculator {
         if (descriptor == null) {
             throw new NullPointerException("DescriptorCalculator.getNumberOfComponents: descriptor is null.");
         }
-        if (descriptor.name().startsWith("CIRCULAR_FINGERPRINTER_")) {
-            return this.circularFingerprintSize;
-        }
-        return descriptor.getDescriptorComponentNumber();
+        // the calculation writes the components, so it defines their number (e.g. the configured circular size)
+        return this.calculations.get(descriptor).getComponentNumber();
     }
 
     /**
@@ -462,10 +460,8 @@ public final class DescriptorCalculator {
         if (descriptor == null) {
             throw new NullPointerException("DescriptorCalculator.getComponentType: descriptor is null.");
         }
-        if (this.isCircularFingerprintCounts && descriptor.name().startsWith("CIRCULAR_FINGERPRINTER_")) {
-            return DescriptorComponentType.COUNT;
-        }
-        return descriptor.getComponentType();
+        // the calculation writes the components, so it defines their type (e.g. counts in count mode)
+        return this.calculations.get(descriptor).getComponentType(descriptor);
     }
 
     /**

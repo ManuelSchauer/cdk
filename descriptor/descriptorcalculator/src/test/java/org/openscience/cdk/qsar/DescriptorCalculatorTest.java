@@ -4074,6 +4074,20 @@ class DescriptorCalculatorTest {
     }
 
     /**
+     * Tests that the number of components of every descriptor in the enum is equal to the number of components that
+     * its calculation writes (default calculator), so that the enum metadata stays consistent with the CDK classes:
+     * for molecular descriptors, the calculation takes the number from the descriptor names of the CDK instance, for
+     * fingerprints from the fingerprinter.
+     */
+    @Test
+    void test_ComponentNumberConsistentWithEnum() {
+        for (Descriptor descriptor : Descriptor.values()) {
+            Assertions.assertEquals(descriptor.getDescriptorComponentNumber(), CALCULATOR.getNumberOfComponents(descriptor), descriptor.name());
+            Assertions.assertEquals(descriptor.getDescriptorComponentNumber(), CALCULATOR.getColumnNames(new Descriptor[]{descriptor}).length, descriptor.name());
+        }
+    }
+
+    /**
      * Tests that the calculated values match the component types of all 2D descriptors and fingerprints for a set of
      * different molecules: binary components are 0 or 1, count components are non-negative integers (NaN values of
      * failed calculations are skipped). In count mode, the circular fingerprints are counts, and counts greater than

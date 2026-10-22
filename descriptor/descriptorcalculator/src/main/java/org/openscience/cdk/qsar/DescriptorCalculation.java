@@ -39,7 +39,7 @@ interface DescriptorCalculation {
      * Note: No input validation is performed here, this is done by the public methods of the
      * {@link DescriptorCalculator}.
      *
-     * @param descriptor    the descriptor to calculate; provides the number of components and the name for logging
+     * @param descriptor    the descriptor to calculate; used for logging
      * @param atomContainer the molecule (IS NOT CHANGED); aromaticity must already be perceived if required
      * @param vector        the data vector (row of the data matrix) to write the components to (MAY BE CHANGED);
      *                      the components are written from startIndex on
@@ -57,4 +57,23 @@ interface DescriptorCalculation {
      * @return a new array with the component names
      */
     String[] getComponentNames();
+
+    /**
+     * Returns the number of components this calculation writes into the vector, i.e. its number of matrix columns.
+     *
+     * @return the number of components
+     */
+    int getComponentNumber();
+
+    /**
+     * Returns the type of the values of all components this calculation writes into the vector. By default, this is
+     * the type defined in the enum (see {@link Descriptor#getComponentType()}); calculations whose type depends on
+     * the configuration override it.
+     *
+     * @param descriptor the descriptor of this calculation
+     * @return the type of the values of all components
+     */
+    default DescriptorComponentType getComponentType(Descriptor descriptor) {
+        return descriptor.getComponentType();
+    }
 }

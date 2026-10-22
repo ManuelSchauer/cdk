@@ -64,6 +64,11 @@ final class MolecularCalculation implements DescriptorCalculation {
     private final String namePrefix;
 
     /**
+     * Number of components, i.e. the number of descriptor names of the configured CDK descriptor instance.
+     */
+    private final int componentNumber;
+
+    /**
      * Constructor.
      *
      * @param cdkDescriptor the (configured) CDK descriptor instance
@@ -82,6 +87,7 @@ final class MolecularCalculation implements DescriptorCalculation {
     MolecularCalculation(IMolecularDescriptor cdkDescriptor, String namePrefix) {
         this.cdkDescriptor = cdkDescriptor;
         this.namePrefix = namePrefix;
+        this.componentNumber = cdkDescriptor.getDescriptorNames().length;
     }
 
     /**
@@ -98,6 +104,17 @@ final class MolecularCalculation implements DescriptorCalculation {
             names[i] = this.namePrefix + names[i];
         }
         return names;
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * This is the number of descriptor names of the configured CDK descriptor instance, e.g. 2 for the Wiener numbers,
+     * so the number of components always matches the component names.
+     */
+    @Override
+    public int getComponentNumber() {
+        return this.componentNumber;
     }
 
     /**
@@ -123,12 +140,12 @@ final class MolecularCalculation implements DescriptorCalculation {
                 vector[startIndex] = (float) integerResult.intValue();
             } else if (result instanceof DoubleArrayResult) {
                 DoubleArrayResult arrayResult = (DoubleArrayResult) result;
-                for (int i = 0; i < descriptor.getDescriptorComponentNumber(); i++) {
+                for (int i = 0; i < this.componentNumber; i++) {
                     vector[startIndex + i] = (float) arrayResult.get(i);
                 }
             } else if (result instanceof IntegerArrayResult) {
                 IntegerArrayResult arrayResult = (IntegerArrayResult) result;
-                for (int i = 0; i < descriptor.getDescriptorComponentNumber(); i++) {
+                for (int i = 0; i < this.componentNumber; i++) {
                     vector[startIndex + i] = (float) arrayResult.get(i);
                 }
             } else {

@@ -112,6 +112,28 @@ final class FingerprintCalculation implements DescriptorCalculation {
     }
 
     /**
+     * {@inheritDoc}
+     * <p>
+     * This is the size of the fingerprint as given by the fingerprinter, e.g. 881 for the PubChem fingerprint or the
+     * configured size of a circular fingerprint.
+     */
+    @Override
+    public int getComponentNumber() {
+        return this.size;
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * A fingerprint written as folded count fingerprint has counts as components, otherwise the type defined in the
+     * enum (binary for all fingerprints) is returned.
+     */
+    @Override
+    public DescriptorComponentType getComponentType(Descriptor descriptor) {
+        return this.isCounts ? DescriptorComponentType.COUNT : descriptor.getComponentType();
+    }
+
+    /**
      * Returns whether the fingerprint is written as folded count fingerprint.
      *
      * @return true: folded count fingerprint; false: bit fingerprint
