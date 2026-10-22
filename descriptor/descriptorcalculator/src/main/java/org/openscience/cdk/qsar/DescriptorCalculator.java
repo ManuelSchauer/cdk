@@ -129,7 +129,9 @@ import java.util.stream.IntStream;
  *     computed without producing {@link Float#NaN}, and {@code false} if at least one NaN was encountered or if the
  *     calculation was aborted before it started, i.e. if the given descriptor or molecule array is empty or a
  *     descriptor requires 3D coordinates that are not available (always the case for SMILES input); in the latter
- *     cases, the matrix is not changed. NaN
+ *     cases, the matrix is not changed. A molecule that cannot be calculated at all, i.e. an empty molecule, an
+ *     empty or invalid SMILES string or a molecule for which e.g. the aromaticity perception fails, yields NaN for
+ *     all its components, so that its row cannot be mistaken for valid values. NaN
  *     positions are additionally recorded in the caller-supplied {@code nanPositionsList} list as
  *     {@code int[]{moleculeIndex, componentIndex}} pairs, sorted by molecule index and component index. Any
  *     modifiable list can be used, also for parallel executions.
@@ -621,7 +623,7 @@ public final class DescriptorCalculator {
      * Calculates a single descriptor for the given molecule and returns the result as a float array.
      * <p>
      * This method is a convenience wrapper around the internal {@link #calculate} method for
-     * single descriptor calculations. If the calculation fails, all values in the result array
+     * single descriptor calculations. If the calculation fails or the molecule is empty, all values in the result array
      * will be set to {@link Float#NaN}.
      * <p>
      * <b>Important:</b> The molecule must have aromaticity already perceived if required by the descriptor.
@@ -629,7 +631,7 @@ public final class DescriptorCalculator {
      *
      * @param descriptor The descriptor to calculate (must not be null)
      * @param molecule The molecule to calculate the descriptor for (must not be null);
-     *                  aromaticity must be perceived beforehand if required; if it is empty, an empty array is returned
+     *                  aromaticity must be perceived beforehand if required; if it is empty, NaN values are returned
      * @return A float array containing the calculated descriptor components. Length equals
      *         {@link #getNumberOfComponents(Descriptor)}. Contains NaN values if calculation fails.
      */
@@ -642,7 +644,10 @@ public final class DescriptorCalculator {
             throw new NullPointerException("DescriptorCalculator.calculateDescriptor: molecule must not be null.");
         }
         if (molecule.isEmpty()) {
-            return new float[0];
+            float[] result = new float[this.getNumberOfComponents(descriptor)];
+            Arrays.fill(result, Float.NaN);
+            DescriptorCalculator.LOGGER.warn("DescriptorCalculator.calculateDescriptor: The molecule is empty, descriptor " + descriptor.getName() + " cannot be calculated.");
+            return result;
         }
         if (descriptor.requires3DCoordinates() && !GeometryUtil.has3DCoordinates(molecule)) {
             float[] result = new float[this.getNumberOfComponents(descriptor)];
@@ -680,10 +685,11 @@ public final class DescriptorCalculator {
      * <p>
      * This method is a convenience wrapper around the internal {@link #calculate} method for single descriptor calculations.
      * The method automatically perceives aromaticity using the specified electron donation model before calculating the descriptor.
-     * If aromaticity perception or calculation fails, all values in the result array will be set to {@link Float#NaN}.
+     * If aromaticity perception or calculation fails or the molecule is empty, all values in the result array will be
+     * set to {@link Float#NaN}.
      *
      * @param descriptor The descriptor to calculate (must not be null)
-     * @param molecule The molecule to calculate the descriptor for (must not be null); if it is empty, an empty array is returned
+     * @param molecule The molecule to calculate the descriptor for (must not be null); if it is empty, NaN values are returned
      * @param electronDonationModel The electron donation model to use for aromaticity perception (must not be null)
      * @return A float array containing the calculated descriptor components. Length equals
      *         {@link #getNumberOfComponents(Descriptor)}. Contains NaN values if calculation fails.
@@ -699,11 +705,12 @@ public final class DescriptorCalculator {
         if (molecule == null) {
             throw new NullPointerException("DescriptorCalculator.calculateDescriptor: molecule must not be null.");
         }
-        if (molecule.isEmpty()) {
-            return new float[0];
-        }
         if (electronDonationModel == null) {
             throw new NullPointerException("DescriptorCalculator.calculateDescriptor: electronDonationModel must not be null.");
+        }
+        if (molecule.isEmpty()) {
+            // NaN for all components, see calculateDescriptor(Descriptor, IAtomContainer)
+            return this.calculateDescriptor(descriptor, molecule);
         }
 
         try {
@@ -723,11 +730,11 @@ public final class DescriptorCalculator {
      * This method is a convenience wrapper around the internal {@link #calculate} method for single descriptor calculations.
      * The method automatically parses the SMILES string into a molecule,
      * perceives aromaticity using the specified electron donation model, and then calculates the descriptor.
-     * If parsing, aromaticity perception, or calculation fails, all values in the result array
+     * If parsing, aromaticity perception, or calculation fails or the SMILES string is empty, all values in the result array
      * will be set to {@link Float#NaN}.
      *
      * @param descriptor The descriptor to calculate (must not be null)
-     * @param smilesString The SMILES string representing the molecule (must not be null); if it is blank, an empty array is returned
+     * @param smilesString The SMILES string representing the molecule (must not be null); if it is blank, NaN values are returned
      * @param electronDonationModel The electron donation model to use for aromaticity perception (must not be null)
      * @return A float array containing the calculated descriptor components. Length equals
      *         {@link #getNumberOfComponents(Descriptor)}. Contains NaN values if calculation fails.
@@ -742,9 +749,6 @@ public final class DescriptorCalculator {
         }
         if (smilesString == null) {
             throw new NullPointerException("DescriptorCalculator.calculateDescriptor: smilesString must not be null.");
-        }
-        if (smilesString.trim().isEmpty()) {
-            return new float[0];
         }
         if (electronDonationModel == null) {
             throw new NullPointerException("DescriptorCalculator.calculateDescriptor: electronDonationModel must not be null.");
@@ -791,7 +795,8 @@ public final class DescriptorCalculator {
      *                      (MAY BE CHANGED); any modifiable list can be used, also for parallel calculations. The
      *                      positions are added after the calculation, sorted by molecule index and component index.
      * @return True: Operation was successful, no NaN values generated; false: Operation failed, i.e. at least one component in a descriptor
-     *         calculation is NaN, a global exception occurred, or the calculation was aborted before it started
+     *         calculation is NaN (an empty or invalid molecule yields NaN for all its components), a global exception
+     *         occurred, or the calculation was aborted before it started
      *         because the given descriptor or molecule array is empty or a descriptor requires 3D coordinates that are
      *         not available (in this case, the matrix is not changed)
      * @throws IllegalArgumentException if the matrix dimensions are invalid, if batch size is &lt;= 0 or if a
@@ -877,6 +882,7 @@ public final class DescriptorCalculator {
                             return;
                         } catch (Exception exception) {
                             hasNaN.set(true);
+                            this.setNaNForMolecule(descriptors, matrix[i], startIndices, i, collectedNanPositions);
                             DescriptorCalculator.LOGGER.warn(
                                     String.format("DescriptorCalculator.setDescriptorsForMoleculesByBatchParallelization: Exception in batch %d, molecule index: %d", batchIndex, i),
                                     exception
@@ -895,6 +901,7 @@ public final class DescriptorCalculator {
                         throw exception;
                     } catch (Exception exception) {
                         hasNaN.set(true);
+                        this.setNaNForMolecule(descriptors, matrix[i], startIndices, i, collectedNanPositions);
                         DescriptorCalculator.LOGGER.warn(
                                 String.format("DescriptorCalculator.setDescriptorsForMoleculesByBatchParallelization: Exception for molecule index: %d", i),
                                 exception
@@ -940,7 +947,8 @@ public final class DescriptorCalculator {
      *                      (MAY BE CHANGED); any modifiable list can be used, also for parallel calculations. The
      *                      positions are added after the calculation, sorted by molecule index and component index.
      * @return True: Operation was successful, no NaN values generated; false: Operation failed, i.e. at least one component in a descriptor
-     *         calculation is NaN, a global exception occurred, or the calculation was aborted before it started
+     *         calculation is NaN (an empty or invalid molecule yields NaN for all its components), a global exception
+     *         occurred, or the calculation was aborted before it started
      *         because the given descriptor or molecule array is empty or a descriptor requires 3D coordinates that are
      *         not available (in this case, the matrix is not changed)
      * @throws IllegalArgumentException if the matrix dimensions are invalid or if batch size is &lt;= 0
@@ -1022,6 +1030,7 @@ public final class DescriptorCalculator {
                             return;
                         } catch (Exception exception) {
                             hasNaN.set(true);
+                            this.setNaNForMolecule(descriptors, matrix[i], startIndices, i, collectedNanPositions);
                             DescriptorCalculator.LOGGER.warn(
                                     String.format("DescriptorCalculator.setDescriptorsForMoleculeBySmilesStringsBatchParallelization: Exception in batch %d, molecule index: %d", batchIndex, i),
                                     exception
@@ -1040,6 +1049,7 @@ public final class DescriptorCalculator {
                         throw exception;
                     } catch (Exception exception) {
                         hasNaN.set(true);
+                        this.setNaNForMolecule(descriptors, matrix[i], startIndices, i, collectedNanPositions);
                         DescriptorCalculator.LOGGER.warn(
                                 String.format("DescriptorCalculator.setDescriptorsForMoleculeBySmilesStringsBatchParallelization: Exception for molecule index: %d", i),
                                 exception
@@ -1083,7 +1093,8 @@ public final class DescriptorCalculator {
      *                      (MAY BE CHANGED); any modifiable list can be used, also for parallel calculations. The
      *                      positions are added after the calculation, sorted by molecule index and component index.
      * @return True: Operation was successful, no NaN values generated; false: Operation failed, i.e. at least one component in a descriptor
-     *         calculation is NaN, a global exception occurred, or the calculation was aborted before it started
+     *         calculation is NaN (an empty or invalid molecule yields NaN for all its components), a global exception
+     *         occurred, or the calculation was aborted before it started
      *         because the given descriptor or molecule array is empty or a descriptor requires 3D coordinates that are
      *         not available (in this case, the matrix is not changed)
      * @throws IllegalArgumentException if the matrix dimensions are invalid or if a molecule object occurs
@@ -1160,6 +1171,7 @@ public final class DescriptorCalculator {
                                 Thread.currentThread().interrupt(); // Preserve interrupt status
                             } catch (Exception exception) {
                                 hasNaN.set(true);
+                                this.setNaNForMolecule(descriptors, matrix[i], startIndices, i, collectedNanPositions);
                                 DescriptorCalculator.LOGGER.warn(
                                         String.format("DescriptorCalculator.setDescriptorsForMoleculesByMoleculeParallelization: One descriptor calculation caused an exception, molecule index: %d.", i),
                                         exception
@@ -1177,6 +1189,7 @@ public final class DescriptorCalculator {
                         throw exception;
                     } catch (Exception exception) {
                         hasNaN.set(true);
+                        this.setNaNForMolecule(descriptors, matrix[i], startIndices, i, collectedNanPositions);
                         DescriptorCalculator.LOGGER.warn(
                                 String.format("DescriptorCalculator.setDescriptorsForMoleculesByMoleculeParallelization: Exception for molecule index: %d", i),
                                 exception
@@ -1221,7 +1234,8 @@ public final class DescriptorCalculator {
      *                      (MAY BE CHANGED); any modifiable list can be used, also for parallel calculations. The
      *                      positions are added after the calculation, sorted by molecule index and component index.
      * @return True: Operation was successful, no NaN values generated; false: Operation failed, i.e. at least one component in a descriptor
-     *         calculation is NaN, a global exception occurred, or the calculation was aborted before it started
+     *         calculation is NaN (an empty or invalid molecule yields NaN for all its components), a global exception
+     *         occurred, or the calculation was aborted before it started
      *         because the given descriptor or molecule array is empty or a descriptor requires 3D coordinates that are
      *         not available (in this case, the matrix is not changed)
      * @throws IllegalArgumentException if the matrix dimensions are invalid
@@ -1294,6 +1308,7 @@ public final class DescriptorCalculator {
                                 Thread.currentThread().interrupt(); // Preserve interrupt status
                             } catch (Exception exception) {
                                 hasNaN.set(true);
+                                this.setNaNForMolecule(descriptors, matrix[i], startIndices, i, collectedNanPositions);
                                 DescriptorCalculator.LOGGER.warn(
                                         String.format("DescriptorCalculator.setDescriptorsForMoleculesBySmilesStringParallelization: Exception in molecule index: %d", i),
                                         exception
@@ -1312,6 +1327,7 @@ public final class DescriptorCalculator {
                         throw exception;
                     } catch (Exception exception) {
                         hasNaN.set(true);
+                        this.setNaNForMolecule(descriptors, matrix[i], startIndices, i, collectedNanPositions);
                         DescriptorCalculator.LOGGER.warn(
                                 String.format("DescriptorCalculator.setDescriptorsForMoleculesBySmilesStringParallelization: Exception for molecule index: %d", i),
                                 exception
@@ -1360,6 +1376,11 @@ public final class DescriptorCalculator {
             int moleculeIndex,
             Collection<int[]> nanPositionsList
     ) throws CloneNotSupportedException, InterruptedException {
+        if (atomContainer.isEmpty()) {
+            // an empty molecule is no valid input, e.g. an empty line in the input file
+            this.setNaNForMolecule(descriptors, vector, aStartIndices, moleculeIndex, nanPositionsList);
+            return false;
+        }
         IAtomContainer moleculeWithExplicitHydrogens = null;
         for (Descriptor descriptor : descriptors) {
             if (descriptor.needsExplicitHydrogens()){
@@ -1408,6 +1429,11 @@ public final class DescriptorCalculator {
             Collection<int[]> nanPositionsList
     ) throws CDKException, CloneNotSupportedException, InterruptedException {
         IAtomContainer molecule = DescriptorCalculator.SMILES_PARSER.parseSmiles(moleculeSmilesString);
+        if (molecule.isEmpty()) {
+            // an empty (or blank) SMILES string is no valid input, e.g. an empty line in the input file
+            this.setNaNForMolecule(descriptors, vector, aStartIndices, moleculeIndex, nanPositionsList);
+            return false;
+        }
         if (electronDonationModel == null) {
             DescriptorCalculator.setAromaticity(molecule, Aromaticity.Model.Daylight);
         } else {
@@ -1493,6 +1519,35 @@ public final class DescriptorCalculator {
     }
 
     /**
+     * Sets all components of all descriptors of a molecule, i.e. its whole part of the data vector, to NaN and tracks
+     * their positions. Used for a molecule that cannot be calculated at all: an empty molecule, an invalid SMILES
+     * string or a failure before the descriptor calculation (e.g. in the aromaticity perception).
+     * Note: Checks are NOT performed here. All necessary checks have already been made in public methods above.
+     *
+     * @param descriptors Array of descriptors to be calculated (IS NOT CHANGED)
+     * @param vector Vector of molecule (row of data matrix) (MAY BE CHANGED)
+     * @param aStartIndices Start indices in vector of the components of the descriptors
+     * @param moleculeIndex Index of the molecule (row index in data matrix)
+     * @param nanPositionsList Collection to track NaN positions as [moleculeIndex, componentIndex] pairs (MAY BE
+     *                         CHANGED); must be thread-safe for parallel access
+     */
+    private void setNaNForMolecule(
+            Descriptor[] descriptors,
+            float[] vector,
+            int[] aStartIndices,
+            int moleculeIndex,
+            Collection<int[]> nanPositionsList
+    ) {
+        for (int i = 0; i < descriptors.length; i++) {
+            int numComponents = this.getNumberOfComponents(descriptors[i]);
+            for (int j = aStartIndices[i]; j < aStartIndices[i] + numComponents; j++) {
+                vector[j] = Float.NaN;
+                nanPositionsList.add(new int[]{moleculeIndex, j});
+            }
+        }
+    }
+
+    /**
      * Helper method to check for NaN values in a calculated descriptor result and track their positions.
      * This method is thread-safe when used with a thread-safe collection (the public methods use a
      * ConcurrentLinkedQueue). Note that not the entire data vector is checked but only the positions
@@ -1570,7 +1625,7 @@ public final class DescriptorCalculator {
      * its elements is null and an IllegalArgumentException if the same molecule object occurs more than once in the
      * array (the CDK descriptors may change a molecule during calculation, e.g. by setting properties, so one molecule
      * object must not be calculated by several threads at the same time). Returns false if the array is empty. Note
-     * that the molecules in the array are allowed to be empty.
+     * that the molecules in the array are allowed to be empty; an empty molecule yields NaN for all its components.
      *
      * @param atomContainerArray the atom container array to validate
      * @param methodName the calling method name for error messages
@@ -1594,7 +1649,7 @@ public final class DescriptorCalculator {
                 throw new IllegalArgumentException(methodName + ": The molecule object at index " + i
                         + " occurs more than once in atomContainerArray, use a copy instead.");
             }
-            //do nothing if a molecule is empty
+            //an empty molecule is allowed, it yields NaN for all its components
         }
         return true;
     }
@@ -1619,7 +1674,7 @@ public final class DescriptorCalculator {
             if (molecule == null) {
                 throw new NullPointerException(methodName + ": A single SMILES string in moleculeSmilesStringArray is null.");
             }
-            //do nothing if a String is empty
+            //an empty String is allowed, it yields NaN for all its components
         }
         return true;
     }

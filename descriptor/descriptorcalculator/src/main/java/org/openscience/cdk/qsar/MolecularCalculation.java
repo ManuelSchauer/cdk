@@ -106,7 +106,14 @@ final class MolecularCalculation implements DescriptorCalculation {
     @Override
     public boolean calculate(Descriptor descriptor, IAtomContainer atomContainer, float[] vector, int startIndex) {
         try {
-            IDescriptorResult result = this.cdkDescriptor.calculate(atomContainer).getValue();
+            DescriptorValue value = this.cdkDescriptor.calculate(atomContainer);
+            // a CDK descriptor reports a failure via the exception of the descriptor value; its result then holds
+            // placeholder values, e.g. (int) Double.NaN, i.e. 0, for integer results, which must not be written
+            if (value.getException() != null) {
+                LOGGER.warn("Descriptor ", descriptor.name(), " failed to calculate: ", value.getException().getMessage());
+                return false;
+            }
+            IDescriptorResult result = value.getValue();
             //note: we ignore all the Sonar suggestions here to keep the code compatible with Java 8
             if (result instanceof DoubleResult) {
                 DoubleResult doubleResult = (DoubleResult) result;

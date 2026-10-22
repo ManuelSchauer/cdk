@@ -3436,8 +3436,8 @@ class DescriptorCalculatorTest {
     }
 
     /**
-     * Comprehensive test verifying that all descriptor enum values return an empty float array (length 0)
-     * when calculating descriptors for an empty molecule (0 atoms).
+     * Tests that all descriptors return NaN for all their components (array length equal to the number of components)
+     * when calculating descriptors for an empty molecule (0 atoms), because an empty molecule is no valid input.
      */
     @Test
     void test_CalculateDescriptor_EmptyMolecule_AllDescriptors() {
@@ -3445,41 +3445,68 @@ class DescriptorCalculatorTest {
         Assertions.assertTrue(emptyMolecule.isEmpty());
 
         for (Descriptor descriptor : Descriptor.values()) {
-            // Test calculateDescriptor(descriptor, emptyMolecule)
-            float[] result1 = CALCULATOR.calculateDescriptor(descriptor, emptyMolecule);
-            Assertions.assertNotNull(result1, "Result should not be null for " + descriptor);
-            Assertions.assertEquals(0, result1.length, "Empty molecule should return 0-length array for " + descriptor);
-
-            // Test calculateDescriptor(descriptor, emptyMolecule, electronDonationModel) with various models
-            float[] result2 = CALCULATOR.calculateDescriptor(descriptor, emptyMolecule, ElectronDonation.daylight());
-            Assertions.assertNotNull(result2, "Result should not be null for " + descriptor + " with Daylight model");
-            Assertions.assertEquals(0, result2.length, "Empty molecule should return 0-length array for " + descriptor + " with Daylight model");
-
-            float[] result3 = CALCULATOR.calculateDescriptor(descriptor, emptyMolecule, ElectronDonation.cdk());
-            Assertions.assertNotNull(result3, "Result should not be null for " + descriptor + " with CDK model");
-            Assertions.assertEquals(0, result3.length, "Empty molecule should return 0-length array for " + descriptor + " with CDK model");
-
-            float[] result4 = CALCULATOR.calculateDescriptor(descriptor, emptyMolecule, ElectronDonation.piBonds());
-            Assertions.assertNotNull(result4, "Result should not be null for " + descriptor + " with piBonds model");
-            Assertions.assertEquals(0, result4.length, "Empty molecule should return 0-length array for " + descriptor + " with piBonds model");
+            DescriptorCalculatorTest.assertAllNaN(CALCULATOR.calculateDescriptor(descriptor, emptyMolecule), descriptor, "no model");
+            DescriptorCalculatorTest.assertAllNaN(CALCULATOR.calculateDescriptor(descriptor, emptyMolecule, ElectronDonation.daylight()), descriptor, "Daylight model");
+            DescriptorCalculatorTest.assertAllNaN(CALCULATOR.calculateDescriptor(descriptor, emptyMolecule, ElectronDonation.cdk()), descriptor, "CDK model");
+            DescriptorCalculatorTest.assertAllNaN(CALCULATOR.calculateDescriptor(descriptor, emptyMolecule, ElectronDonation.piBonds()), descriptor, "piBonds model");
+            Assertions.assertTrue(emptyMolecule.isEmpty());
         }
     }
 
     /**
-     * Comprehensive test verifying that all descriptor enum values return an empty float array (length 0)
-     * when calculating descriptors for empty and whitespace SMILES strings.
+     * Tests that all descriptors return NaN for all their components (array length equal to the number of components)
+     * when calculating descriptors for empty and whitespace SMILES strings and for invalid SMILES strings.
      */
     @Test
     void test_CalculateDescriptor_EmptyAndWhitespaceSmiles_AllDescriptors() {
-        String[] emptySmilesVariants = new String[]{"", "   ", "\t", "\n", "\r\n", " \t \n \r "};
+        String[] emptyAndInvalidSmiles = new String[]{"", "   ", "\t", "\n", "\r\n", " \t \n \r ", "C1CC", "XyZ"};
 
         for (Descriptor descriptor : Descriptor.values()) {
-            for (String emptySmiles : emptySmilesVariants) {
-                float[] result = CALCULATOR.calculateDescriptor(descriptor, emptySmiles, ElectronDonation.daylight());
-                Assertions.assertNotNull(result, "Result should not be null for " + descriptor + " with SMILES: '" + emptySmiles + "'");
-                Assertions.assertEquals(0, result.length, "Empty/whitespace SMILES should return 0-length array for " + descriptor + " with SMILES: '" + emptySmiles + "'");
+            for (String smiles : emptyAndInvalidSmiles) {
+                DescriptorCalculatorTest.assertAllNaN(CALCULATOR.calculateDescriptor(descriptor, smiles, ElectronDonation.daylight()),
+                        descriptor, "SMILES '" + smiles + "'");
             }
         }
+    }
+
+    /**
+     * Asserts that the result of a single descriptor calculation has the length of the number of components of the
+     * descriptor and contains only NaN values.
+     *
+     * @param result the result of calculateDescriptor()
+     * @param descriptor the calculated descriptor
+     * @param context description of the input for the assertion messages
+     */
+    private static void assertAllNaN(float[] result, Descriptor descriptor, String context) {
+        Assertions.assertNotNull(result, descriptor + ", " + context);
+        Assertions.assertEquals(CALCULATOR.getNumberOfComponents(descriptor), result.length, descriptor + ", " + context);
+        for (float value : result) {
+            Assertions.assertTrue(Float.isNaN(value), descriptor + ", " + context);
+        }
+    }
+
+    /**
+     * Asserts that the given rows of the matrix contain only NaN values and that the NaN positions are exactly all
+     * positions of these rows, sorted by molecule index and component index.
+     *
+     * @param matrix the calculated matrix
+     * @param nanRows the indices of the rows that must be NaN (in ascending order)
+     * @param nanPositions the NaN positions returned by the calculation
+     * @param context description of the calculation for the assertion messages
+     */
+    private static void assertNaNRows(float[][] matrix, int[] nanRows, List<int[]> nanPositions, String context) {
+        List<String> expectedPositions = new ArrayList<>();
+        for (int row : nanRows) {
+            for (int column = 0; column < matrix[row].length; column++) {
+                Assertions.assertTrue(Float.isNaN(matrix[row][column]), "row " + row + ", column " + column + ", " + context);
+                expectedPositions.add(row + "," + column);
+            }
+        }
+        List<String> actualPositions = new ArrayList<>();
+        for (int[] position : nanPositions) {
+            actualPositions.add(position[0] + "," + position[1]);
+        }
+        Assertions.assertEquals(expectedPositions, actualPositions, context);
     }
 
     /**
@@ -3506,7 +3533,7 @@ class DescriptorCalculatorTest {
     /**
      * Tests setDescriptorsForMoleculesByMoleculeParallelization with empty and mixed molecules in sequential and parallel modes.
      * Verifies that calculations complete safely without exceptions, valid molecules produce expected values,
-     * and empty molecules are calculated consistently (e.g. 0.0 weight/count).
+     * and empty molecules yield NaN for all their components (recorded in the NaN positions), so the method returns false.
      */
     @Test
     void test_MoleculeParallelization_WithEmptyMolecules() throws Exception {
@@ -3528,8 +3555,7 @@ class DescriptorCalculatorTest {
                     descriptors, mixedMolecules, matrix, 0, isParallel, nanPositions
             );
 
-            Assertions.assertTrue(success, "Calculation should succeed without NaNs (parallel=" + isParallel + ")");
-            Assertions.assertEquals(0, nanPositions.size());
+            Assertions.assertFalse(success, "Empty molecules yield NaN (parallel=" + isParallel + ")");
 
             // Valid molecules: ethanol (row 0) and benzene (row 2)
             Assertions.assertTrue(matrix[0][0] > 40.0f && matrix[0][0] < 50.0f, "Ethanol weight ~ 46");
@@ -3537,17 +3563,14 @@ class DescriptorCalculatorTest {
             Assertions.assertTrue(matrix[2][0] > 70.0f && matrix[2][0] < 85.0f, "Benzene weight ~ 78");
             Assertions.assertEquals(12.0f, matrix[2][1], 0.01f, "Benzene atom count with explicit H = 12");
 
-            // Empty molecules: emptyMol1 (row 1) and emptyMol2 (row 3) have 0.0 values
-            Assertions.assertEquals(0.0f, matrix[1][0], 0.001f, "Empty molecule 1 weight = 0");
-            Assertions.assertEquals(0.0f, matrix[1][1], 0.001f, "Empty molecule 1 atom count = 0");
-            Assertions.assertEquals(0.0f, matrix[3][0], 0.001f, "Empty molecule 2 weight = 0");
-            Assertions.assertEquals(0.0f, matrix[3][1], 0.001f, "Empty molecule 2 atom count = 0");
+            // Empty molecules: emptyMol1 (row 1) and emptyMol2 (row 3) are NaN
+            DescriptorCalculatorTest.assertNaNRows(matrix, new int[]{1, 3}, nanPositions, "parallel=" + isParallel);
         }
     }
 
     /**
      * Tests setDescriptorsForMoleculesByBatchParallelization with empty and mixed molecules in sequential and parallel modes
-     * across different batch sizes.
+     * across different batch sizes; empty molecules yield NaN for all their components.
      */
     @Test
     void test_BatchParallelization_WithEmptyMolecules() throws Exception {
@@ -3569,17 +3592,18 @@ class DescriptorCalculatorTest {
                         descriptors, molecules, matrix, 0, batchSize, isParallel, nanPositions
                 );
 
-                Assertions.assertTrue(success, "Calculation should succeed (batchSize=" + batchSize + ", parallel=" + isParallel + ")");
+                String context = "batchSize=" + batchSize + ", parallel=" + isParallel;
+                Assertions.assertFalse(success, "Empty molecule yields NaN (" + context + ")");
                 Assertions.assertTrue(matrix[0][0] > 40.0f, "Ethanol weight should be positive");
-                Assertions.assertEquals(0.0f, matrix[1][0], 0.001f, "Empty molecule weight should be 0.0");
-                Assertions.assertEquals(0.0f, matrix[1][1], 0.001f, "Empty molecule atom count should be 0.0");
                 Assertions.assertTrue(matrix[2][0] > 70.0f, "Benzene weight should be positive");
+                DescriptorCalculatorTest.assertNaNRows(matrix, new int[]{1}, nanPositions, context);
             }
         }
     }
 
     /**
-     * Tests setDescriptorsForMoleculesBySmilesStringParallelization with empty and whitespace SMILES in sequential and parallel modes.
+     * Tests setDescriptorsForMoleculesBySmilesStringParallelization with empty and whitespace SMILES in sequential and
+     * parallel modes; empty and whitespace SMILES yield NaN for all their components.
      */
     @Test
     void test_SmilesParallelization_WithEmptyAndWhitespaceSmiles() throws Exception {
@@ -3595,7 +3619,7 @@ class DescriptorCalculatorTest {
                     descriptors, smilesArray, matrix, 0, ElectronDonation.daylight(), isParallel, nanPositions
             );
 
-            Assertions.assertTrue(success, "Calculation with empty/whitespace SMILES should succeed without NaNs (parallel=" + isParallel + ")");
+            Assertions.assertFalse(success, "Empty/whitespace SMILES yield NaN (parallel=" + isParallel + ")");
 
             // Valid SMILES rows: CCO (row 0), Benzene (row 2), Acetic acid (row 5)
             Assertions.assertTrue(matrix[0][0] > 40.0f, "CCO weight > 40");
@@ -3606,17 +3630,13 @@ class DescriptorCalculatorTest {
             Assertions.assertEquals(8.0f, matrix[5][1], 0.01f, "Acetic acid atom count with explicit H = 8");
 
             // Empty/whitespace SMILES rows: empty (row 1), spaces (row 3), whitespace (row 4)
-            Assertions.assertEquals(0.0f, matrix[1][0], 0.001f, "Empty SMILES weight = 0");
-            Assertions.assertEquals(0.0f, matrix[1][1], 0.001f, "Empty SMILES atom count = 0");
-            Assertions.assertEquals(0.0f, matrix[3][0], 0.001f, "Spaces SMILES weight = 0");
-            Assertions.assertEquals(0.0f, matrix[3][1], 0.001f, "Spaces SMILES atom count = 0");
-            Assertions.assertEquals(0.0f, matrix[4][0], 0.001f, "Whitespace SMILES weight = 0");
-            Assertions.assertEquals(0.0f, matrix[4][1], 0.001f, "Whitespace SMILES atom count = 0");
+            DescriptorCalculatorTest.assertNaNRows(matrix, new int[]{1, 3, 4}, nanPositions, "parallel=" + isParallel);
         }
     }
 
     /**
-     * Tests setDescriptorsForMoleculeBySmilesStringsBatchParallelization with empty and whitespace SMILES.
+     * Tests setDescriptorsForMoleculeBySmilesStringsBatchParallelization with empty and whitespace SMILES; they yield
+     * NaN for all their components.
      */
     @Test
     void test_SmilesBatchParallelization_WithEmptyAndWhitespaceSmiles() throws Exception {
@@ -3633,13 +3653,68 @@ class DescriptorCalculatorTest {
                         descriptors, smilesArray, matrix, 0, batchSize, ElectronDonation.daylight(), isParallel, nanPositions
                 );
 
-                Assertions.assertTrue(success, "Calculation should succeed (batchSize=" + batchSize + ", parallel=" + isParallel + ")");
+                String context = "batchSize=" + batchSize + ", parallel=" + isParallel;
+                Assertions.assertFalse(success, "Empty SMILES yield NaN (" + context + ")");
                 Assertions.assertTrue(matrix[0][0] > 40.0f, "CCO weight should be positive");
-                Assertions.assertEquals(0.0f, matrix[1][0], 0.001f, "Empty SMILES should be 0.0");
-                Assertions.assertEquals(0.0f, matrix[1][1], 0.001f, "Empty SMILES atom count should be 0.0");
                 Assertions.assertTrue(matrix[2][0] > 70.0f, "Benzene weight should be positive");
-                Assertions.assertEquals(0.0f, matrix[3][0], 0.001f, "Spaces SMILES should be 0.0");
-                Assertions.assertEquals(0.0f, matrix[3][1], 0.001f, "Spaces SMILES atom count should be 0.0");
+                DescriptorCalculatorTest.assertNaNRows(matrix, new int[]{1, 3}, nanPositions, context);
+            }
+        }
+    }
+
+    /**
+     * Tests that invalid SMILES strings within a data set yield NaN for all their components (also recorded in the
+     * NaN positions) in both SMILES methods, sequential and parallel, starting at a start index > 0, while the other
+     * rows are calculated correctly (equal to the single molecule calculation) and the columns before the start index
+     * are not changed.
+     *
+     * @throws Exception if anything goes wrong
+     */
+    @Test
+    void test_InvalidSmiles_YieldNaNRows() throws Exception {
+        String[] smilesArray = new String[]{"CCO", "C1CC", "c1ccccc1", "XyZ", "CC(=O)O"}; // rows 1 and 3 are invalid
+        Descriptor[] descriptors = new Descriptor[]{Descriptor.MOLECULAR_WEIGHT, Descriptor.ATOM_COUNT, Descriptor.MACCS_FINGERPRINTER};
+        int totalComponents = CALCULATOR.getNumberOfComponents(descriptors);
+        int startIndex = 2;
+        for (boolean isBatch : new boolean[]{false, true}) {
+            for (boolean isParallel : new boolean[]{false, true}) {
+                String context = "batch=" + isBatch + ", parallel=" + isParallel;
+                float[][] matrix = new float[smilesArray.length][startIndex + totalComponents];
+                for (float[] row : matrix) {
+                    row[0] = -1.0f;
+                    row[1] = -2.0f;
+                }
+                List<int[]> nanPositions = new ArrayList<>();
+                boolean success = isBatch
+                        ? CALCULATOR.setDescriptorsForMoleculeBySmilesStringsBatchParallelization(descriptors, smilesArray, matrix, startIndex, 2, null, isParallel, nanPositions)
+                        : CALCULATOR.setDescriptorsForMoleculesBySmilesStringParallelization(descriptors, smilesArray, matrix, startIndex, null, isParallel, nanPositions);
+                Assertions.assertFalse(success, context);
+
+                List<String> expectedPositions = new ArrayList<>();
+                for (int row = 0; row < smilesArray.length; row++) {
+                    Assertions.assertEquals(-1.0f, matrix[row][0], context);
+                    Assertions.assertEquals(-2.0f, matrix[row][1], context);
+                    boolean isInvalid = row == 1 || row == 3;
+                    int column = startIndex;
+                    for (Descriptor descriptor : descriptors) {
+                        float[] expected = CALCULATOR.calculateDescriptor(descriptor, smilesArray[row], Aromaticity.Model.Daylight);
+                        for (float value : expected) {
+                            if (isInvalid) {
+                                Assertions.assertTrue(Float.isNaN(matrix[row][column]), "row " + row + ", column " + column + ", " + context);
+                                Assertions.assertTrue(Float.isNaN(value), "single calculation of row " + row);
+                                expectedPositions.add(row + "," + column);
+                            } else {
+                                Assertions.assertEquals(value, matrix[row][column], "row " + row + ", column " + column + ", " + context);
+                            }
+                            column++;
+                        }
+                    }
+                }
+                List<String> actualPositions = new ArrayList<>();
+                for (int[] position : nanPositions) {
+                    actualPositions.add(position[0] + "," + position[1]);
+                }
+                Assertions.assertEquals(expectedPositions, actualPositions, context);
             }
         }
     }

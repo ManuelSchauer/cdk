@@ -168,7 +168,9 @@ public enum Descriptor {
      * Wiener number, returns Wiener path number and Wiener polarity number.
      * Path number: sum of the distances between any two atoms in the molecule.<br>
      * Polarity number: number of pairs of atoms which are separated by exactly three bonds.<br>
-     * Note: the CDK implementation counts all distances, not just those of carbon atoms or only carbon-carbon bonds.
+     * Note: the CDK implementation counts all distances, not just those of carbon atoms or only carbon-carbon bonds.<br>
+     * Note: Both components are non-negative integers, but the component type is CONTINUOUS because the path number is
+     * a topological index (a sum of distances) rather than a count, like the Zagreb index; the polarity number is a count.
      *
      * @see WienerNumbersDescriptor
      */
