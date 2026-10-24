@@ -154,6 +154,9 @@ public enum Descriptor {
      *    fingerprint,
      * 2. add tests in the test class DescriptorCalculatorTest, at "Add new descriptor tests here!" and
      *    "Add new descriptor information here!".
+     * A calculation must not change the molecule it gets: the same molecule object may be calculated by several
+     * threads at the same time, and the descriptors calculated afterwards get the same molecule. If a CDK class
+     * changes its input molecule, its calculation has to work on a copy (see fingerprint(...)).
      */
     /**
      * Molecular weight, adds up the natural masses (weighted average of all known
@@ -1128,14 +1131,15 @@ public enum Descriptor {
 
     /**
      * Returns the recipe for a CDK fingerprinter (bit fingerprint): a pool of fingerprinter instances, because
-     * fingerprinters are not thread-safe.
+     * fingerprinters are not thread-safe. The fingerprint is calculated on a copy of the molecule, because the SMARTS
+     * based fingerprinters (MACCS, PubChem) apply the Daylight aromaticity model to the molecule they get.
      *
      * @param namePrefix prefix of the component names, e.g. "PubChem" for "PubChem_0" ... "PubChem_880"
      * @param fingerprinterFactory creates a fingerprinter instance
      * @return the calculation factory
      */
     private static DescriptorCalculationFactory fingerprint(String namePrefix, Supplier<IFingerprinter> fingerprinterFactory) {
-        return settings -> new FingerprintCalculation(fingerprinterFactory, settings.getFingerprintPoolSize(), false, namePrefix);
+        return settings -> new FingerprintCalculation(fingerprinterFactory, settings.getFingerprintPoolSize(), false, true, namePrefix);
     }
 
     /**
@@ -1151,6 +1155,7 @@ public enum Descriptor {
                 () -> new CircularFingerprinter(circularFingerprinterClass, settings.getCircularFingerprintSize()),
                 settings.getFingerprintPoolSize(),
                 settings.isCircularFingerprintCounts(),
+                false,
                 Descriptor.circularFingerprintName(circularFingerprinterClass));
     }
 
