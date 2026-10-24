@@ -44,14 +44,11 @@ import javax.vecmath.Point3d;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
-import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -786,8 +783,7 @@ public final class DescriptorCalculator {
      *
      * @param descriptors Array of descriptors to be calculated (IS NOT CHANGED)
      * @param atomContainerArray Array of molecules. Note: atomContainerArray[i] corresponds to matrix[i] data
-     *                             vector, i.e. the molecules define the rows of the matrix (IS NOT CHANGED); every
-     *                             molecule object may only occur once in the array (use copies for duplicates)
+     *                             vector, i.e. the molecules define the rows of the matrix (IS NOT CHANGED)
      * @param matrix Matrix of component vectors of molecules. Note: Data vector matrix[i] corresponds to molecule
      *                atomContainerArray[i]. (MAY BE CHANGED)
      * @param startIndex Start index in a vector to be filled with calculated components of descriptors, i.e. matrix
@@ -802,8 +798,8 @@ public final class DescriptorCalculator {
      *         occurred, or the calculation was aborted before it started
      *         because the given descriptor or molecule array is empty or a descriptor requires 3D coordinates that are
      *         not available (in this case, the matrix is not changed)
-     * @throws IllegalArgumentException if the matrix dimensions or the start index are invalid, if batch size is
-     *                                  &lt;= 0 or if a molecule object occurs more than once in atomContainerArray
+     * @throws IllegalArgumentException if the matrix dimensions or the start index are invalid or if batch size is
+     *                                  &lt;= 0
      * @throws InterruptedException if the current thread is interrupted during sequential fingerprint
      *                              calculation; in parallel mode, interruption is handled internally
      *                              by restoring the thread's interrupt flag via
@@ -1094,8 +1090,7 @@ public final class DescriptorCalculator {
      *
      * @param descriptors Array of descriptors to be calculated (IS NOT CHANGED)
      * @param atomContainerArray Array of molecules. Note: atomContainerArray[i] corresponds to matrix[i] data
-     *                             vector, i.e. the molecules define the rows of the matrix (IS NOT CHANGED); every
-     *                             molecule object may only occur once in the array (use copies for duplicates)
+     *                             vector, i.e. the molecules define the rows of the matrix (IS NOT CHANGED)
      * @param matrix Matrix of component vectors of molecules. Note: Data vector matrix[i] corresponds to molecule
      *                atomContainerArray[i]. (MAY BE CHANGED)
      * @param startIndex Start index in a vector to be filled with calculated components of descriptors, i.e. matrix
@@ -1109,8 +1104,7 @@ public final class DescriptorCalculator {
      *         occurred, or the calculation was aborted before it started
      *         because the given descriptor or molecule array is empty or a descriptor requires 3D coordinates that are
      *         not available (in this case, the matrix is not changed)
-     * @throws IllegalArgumentException if the matrix dimensions or the start index are invalid or if a molecule
-     *                                  object occurs more than once in atomContainerArray
+     * @throws IllegalArgumentException if the matrix dimensions or the start index are invalid
      * @throws InterruptedException if the current thread is interrupted during sequential fingerprint
      *                              calculation; in parallel mode, interruption is handled internally
      *                              by restoring the thread's interrupt flag via
@@ -1607,7 +1601,7 @@ public final class DescriptorCalculator {
 
     /**
      * Adds the collected NaN positions to the given list, sorted by molecule index and then by component index, so
-     * that the order is reproducible and independent of thread scheduling.
+     * that the order is reproducible and independent of thread scheduling. Every position is added only once.
      *
      * @param collectedNanPositions NaN positions collected during the calculation (IS NOT CHANGED)
      * @param nanPositionsList list to which the sorted NaN positions are added (MAY BE CHANGED)
@@ -1615,7 +1609,15 @@ public final class DescriptorCalculator {
     private static void addSortedNanPositions(Collection<int[]> collectedNanPositions, List<int[]> nanPositionsList) {
         List<int[]> sortedNanPositions = new ArrayList<>(collectedNanPositions);
         sortedNanPositions.sort(Comparator.<int[]>comparingInt(position -> position[0]).thenComparingInt(position -> position[1]));
-        nanPositionsList.addAll(sortedNanPositions);
+        int[] previousPosition = null;
+        for (int[] position : sortedNanPositions) {
+            // a position can be recorded twice if a molecule fails as a whole (e.g. because its thread is interrupted)
+            // after one of its descriptors has already failed; every position is handed over only once
+            if (previousPosition == null || previousPosition[0] != position[0] || previousPosition[1] != position[1]) {
+                nanPositionsList.add(position);
+            }
+            previousPosition = position;
+        }
     }
 
     /**
@@ -1644,15 +1646,13 @@ public final class DescriptorCalculator {
 
     /**
      * Validates an atom container array input and its contents. Throws NullPointerExceptions if the array or one of
-     * its elements is null and an IllegalArgumentException if the same molecule object occurs more than once in the
-     * array (the CDK descriptors may change a molecule during calculation, e.g. by setting properties, so one molecule
-     * object must not be calculated by several threads at the same time). Returns false if the array is empty. Note
-     * that the molecules in the array are allowed to be empty; an empty molecule yields NaN for all its components.
+     * its elements is null. Returns false if the array is empty. Note that the molecules in the array are allowed to be
+     * empty; an empty molecule yields NaN for all its components. The same molecule object may occur more than once in
+     * the array, because no calculation changes the molecule (see the note for developers in {@link Descriptor}).
      *
      * @param atomContainerArray the atom container array to validate
      * @param methodName the calling method name for error messages
      * @throws NullPointerException if molecule array or one of its elements is null
-     * @throws IllegalArgumentException if the same molecule object occurs more than once in the array
      * @return false if the atom container array is empty; true otherwise
      */
     static boolean validateAtomContainerArray(IAtomContainer[] atomContainerArray, String methodName) {
@@ -1662,14 +1662,9 @@ public final class DescriptorCalculator {
         if (atomContainerArray.length == 0) {
             return false;
         }
-        Set<IAtomContainer> molecules = Collections.newSetFromMap(new IdentityHashMap<>(atomContainerArray.length));
-        for (int i = 0; i < atomContainerArray.length; i++) {
-            if (atomContainerArray[i] == null) {
+        for (IAtomContainer atomContainer : atomContainerArray) {
+            if (atomContainer == null) {
                 throw new NullPointerException(methodName + ": A single molecule in atomContainerArray is null.");
-            }
-            if (!molecules.add(atomContainerArray[i])) {
-                throw new IllegalArgumentException(methodName + ": The molecule object at index " + i
-                        + " occurs more than once in atomContainerArray, use a copy instead.");
             }
             //an empty molecule is allowed, it yields NaN for all its components
         }

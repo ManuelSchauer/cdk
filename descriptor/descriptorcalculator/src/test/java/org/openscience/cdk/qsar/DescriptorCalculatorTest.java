@@ -3409,32 +3409,72 @@ class DescriptorCalculatorTest {
     }
 
     /**
-     * Tests that the same molecule object must not occur more than once in the molecule array of both methods for
-     * IAtomContainer arrays (the matrix is not changed), while copies of a molecule and identical SMILES strings are
-     * allowed.
+     * Tests that the same molecule object may occur more than once in the molecule array of both methods for
+     * IAtomContainer arrays, also if it is calculated by several threads at the same time: no calculation changes the
+     * molecule, so every row equals the sequential calculation of a copy, and the molecule is not changed. The
+     * descriptors include the MACCS and PubChem fingerprints, whose CDK classes change the molecule they get, and
+     * 2-pyridone has a different aromaticity in the CDK model than in the Daylight model applied by these classes.
      *
      * @throws Exception if anything goes wrong
      */
     @Test
     void test_DuplicateMolecules() throws Exception {
-        SmilesParser smilesParser = new SmilesParser(SilentChemObjectBuilder.getInstance());
-        IAtomContainer molecule = smilesParser.parseSmiles("CC(=O)O"); //Acetic Acid CID: 176
-        Descriptor[] descriptors = new Descriptor[]{Descriptor.MOLECULAR_WEIGHT};
-        IAtomContainer[] duplicates = new IAtomContainer[]{molecule, molecule};
-        float[][] matrix = new float[2][1];
-        Assertions.assertThrows(IllegalArgumentException.class, () -> CALCULATOR.setDescriptorsForMoleculesByMoleculeParallelization(
-                descriptors, duplicates, matrix, 0, true, new ArrayList<>()));
-        Assertions.assertThrows(IllegalArgumentException.class, () -> CALCULATOR.setDescriptorsForMoleculesByBatchParallelization(
-                descriptors, duplicates, matrix, 0, 1, true, new ArrayList<>()));
-        Assertions.assertArrayEquals(new float[2][1], matrix);
-
+        IAtomContainer molecule = new SmilesParser(SilentChemObjectBuilder.getInstance()).parseSmiles("O=C1C=CC=CN1"); //2-Pyridone CID: 8871
+        DescriptorCalculator.setAromaticity(molecule, Aromaticity.Model.CDK_1x);
+        Descriptor[] descriptors = new Descriptor[]{Descriptor.MOLECULAR_WEIGHT, Descriptor.MACCS_FINGERPRINTER,
+                Descriptor.AROMATIC_ATOMS_COUNT, Descriptor.PUBCHEM_FINGERPRINTER, Descriptor.A_LOG_P};
+        int numberOfComponents = CALCULATOR.getNumberOfComponents(descriptors);
+        float[][] expected = new float[1][numberOfComponents];
         Assertions.assertTrue(CALCULATOR.setDescriptorsForMoleculesByMoleculeParallelization(
-                descriptors, new IAtomContainer[]{molecule, molecule.clone()}, matrix, 0, true, new ArrayList<>()));
-        Assertions.assertEquals(matrix[0][0], matrix[1][0]);
-        float[][] smilesMatrix = new float[2][1];
-        Assertions.assertTrue(CALCULATOR.setDescriptorsForMoleculesBySmilesStringParallelization(
-                descriptors, new String[]{"CC(=O)O", "CC(=O)O"}, smilesMatrix, 0, null, true, new ArrayList<>()));
-        Assertions.assertArrayEquals(matrix, smilesMatrix);
+                descriptors, new IAtomContainer[]{molecule.clone()}, expected, 0, false, new ArrayList<>()));
+
+        IAtomContainer[] duplicates = new IAtomContainer[200];
+        Arrays.fill(duplicates, molecule);
+        float[][] matrix = new float[duplicates.length][numberOfComponents];
+        Assertions.assertTrue(CALCULATOR.setDescriptorsForMoleculesByMoleculeParallelization(
+                descriptors, duplicates, matrix, 0, true, new ArrayList<>()));
+        float[][] batchMatrix = new float[duplicates.length][numberOfComponents];
+        Assertions.assertTrue(CALCULATOR.setDescriptorsForMoleculesByBatchParallelization(
+                descriptors, duplicates, batchMatrix, 0, 10, true, new ArrayList<>()));
+        for (int i = 0; i < duplicates.length; i++) {
+            Assertions.assertArrayEquals(expected[0], matrix[i], "by molecule, row " + i);
+            Assertions.assertArrayEquals(expected[0], batchMatrix[i], "by batch, row " + i);
+        }
+        for (IAtom atom : molecule.atoms()) {
+            Assertions.assertFalse(atom.isAromatic(), "the molecule must not be changed");
+        }
+    }
+
+    /**
+     * Tests that the MACCS and PubChem fingerprints do not change the molecule: both fingerprinters apply the Daylight
+     * aromaticity model to the molecule they get. 2-Pyridone has no aromatic atoms in the CDK model but 6 in the
+     * Daylight model, so the aromatic atoms count calculated after the fingerprints and the molecule itself must still
+     * show the CDK model, while the fingerprints equal the fingerprints calculated directly with the CDK classes.
+     *
+     * @throws Exception if anything goes wrong
+     */
+    @Test
+    void test_SmartsFingerprints_DoNotChangeMolecule() throws Exception {
+        IAtomContainer molecule = new SmilesParser(SilentChemObjectBuilder.getInstance()).parseSmiles("O=C1C=CC=CN1"); //2-Pyridone CID: 8871
+        DescriptorCalculator.setAromaticity(molecule, Aromaticity.Model.CDK_1x);
+        Descriptor[] descriptors = new Descriptor[]{Descriptor.AROMATIC_ATOMS_COUNT, Descriptor.MACCS_FINGERPRINTER,
+                Descriptor.AROMATIC_ATOMS_COUNT, Descriptor.PUBCHEM_FINGERPRINTER, Descriptor.AROMATIC_ATOMS_COUNT};
+        float[][] matrix = new float[1][CALCULATOR.getNumberOfComponents(descriptors)];
+        Assertions.assertTrue(CALCULATOR.setDescriptorsForMoleculesByMoleculeParallelization(
+                descriptors, new IAtomContainer[]{molecule}, matrix, 0, false, new ArrayList<>()));
+
+        Assertions.assertEquals(0f, matrix[0][0]);
+        Assertions.assertEquals(0f, matrix[0][1 + 166], "aromatic atoms count after MACCS");
+        Assertions.assertEquals(0f, matrix[0][1 + 166 + 1 + 881], "aromatic atoms count after PubChem");
+        for (IAtom atom : molecule.atoms()) {
+            Assertions.assertFalse(atom.isAromatic(), "the molecule must not be changed");
+        }
+        float[] expectedMaccs = DescriptorCalculatorTest.toFloatArray(
+                new MACCSFingerprinter(SilentChemObjectBuilder.getInstance()).getBitFingerprint(molecule.clone()), 166);
+        float[] expectedPubchem = DescriptorCalculatorTest.toFloatArray(
+                new PubchemFingerprinter(SilentChemObjectBuilder.getInstance()).getBitFingerprint(molecule.clone()), 881);
+        Assertions.assertArrayEquals(expectedMaccs, Arrays.copyOfRange(matrix[0], 1, 1 + 166));
+        Assertions.assertArrayEquals(expectedPubchem, Arrays.copyOfRange(matrix[0], 1 + 166 + 1, 1 + 166 + 1 + 881));
     }
 
     /**
@@ -3739,6 +3779,53 @@ class DescriptorCalculatorTest {
                     descriptors, smiles, matrix, -1, 1, null, isParallel, new ArrayList<>()));
             Assertions.assertArrayEquals(new float[2][CALCULATOR.getNumberOfComponents(descriptors) + 1], matrix, "matrix must not be changed");
         }
+    }
+
+    /**
+     * Tests that the NaN positions are exactly the NaN entries of the matrix, every position once, also if a molecule
+     * fails as a whole after one of its descriptors has already failed: JPlogP yields NaN for methane, and the MACCS
+     * fingerprint afterwards fails on the interrupted calling thread, so the rows of the molecules calculated by this
+     * thread are set to NaN as a whole.
+     *
+     * @throws Exception if anything goes wrong
+     */
+    @Test
+    void test_InterruptedParallelCalculation_NoDuplicateNaNPositions() throws Exception {
+        IAtomContainer methane = new SmilesParser(SilentChemObjectBuilder.getInstance()).parseSmiles("C");
+        DescriptorCalculator.setAromaticity(methane, Aromaticity.Model.Daylight);
+        IAtomContainer[] molecules = new IAtomContainer[200];
+        for (int i = 0; i < molecules.length; i++) {
+            molecules[i] = methane.clone();
+        }
+        Descriptor[] descriptors = new Descriptor[]{Descriptor.JP_LOG_P, Descriptor.MACCS_FINGERPRINTER};
+        float[][] matrix = new float[molecules.length][CALCULATOR.getNumberOfComponents(descriptors)];
+        List<int[]> nanPositions = new ArrayList<>();
+        Thread.currentThread().interrupt();
+        try {
+            Assertions.assertFalse(CALCULATOR.setDescriptorsForMoleculesByMoleculeParallelization(descriptors, molecules, matrix, 0, true, nanPositions));
+        } finally {
+            Thread.interrupted(); // clear the interrupt status for the following tests
+        }
+
+        List<String> expectedPositions = new ArrayList<>();
+        int numberOfNaNRows = 0;
+        for (int row = 0; row < matrix.length; row++) {
+            Assertions.assertTrue(Float.isNaN(matrix[row][0]), "JPlogP of methane is NaN, row " + row);
+            if (Float.isNaN(matrix[row][1])) {
+                numberOfNaNRows++;
+            }
+            for (int column = 0; column < matrix[row].length; column++) {
+                if (Float.isNaN(matrix[row][column])) {
+                    expectedPositions.add(row + "," + column);
+                }
+            }
+        }
+        Assertions.assertTrue(numberOfNaNRows > 0, "the calling thread calculates some molecules");
+        List<String> actualPositions = new ArrayList<>();
+        for (int[] position : nanPositions) {
+            actualPositions.add(position[0] + "," + position[1]);
+        }
+        Assertions.assertEquals(expectedPositions, actualPositions, "NaN positions must be the NaN entries, every one once");
     }
 
     /**

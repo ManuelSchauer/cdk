@@ -68,6 +68,12 @@ final class FingerprintCalculation implements DescriptorCalculation {
     private final boolean isCounts;
 
     /**
+     * True: the fingerprint is calculated on a copy of the molecule, because the fingerprinter changes the molecule it
+     * gets; false: on the molecule itself.
+     */
+    private final boolean copiesMolecule;
+
+    /**
      * Prefix of the component names, e.g. "PubChem" or "ECFP4".
      */
     private final String namePrefix;
@@ -84,14 +90,18 @@ final class FingerprintCalculation implements DescriptorCalculation {
      * @param poolSize             number of fingerprinter instances in the pool (must be greater than 0)
      * @param isCounts             true: the fingerprint is written as folded count fingerprint (only for circular
      *                             fingerprints, see the class documentation); false: as bit fingerprint
+     * @param copiesMolecule       true: the fingerprint is calculated on a copy of the molecule, because the
+     *                             fingerprinter changes the molecule it gets (e.g. the SMARTS based fingerprinters MACCS
+     *                             and PubChem apply the Daylight aromaticity model to it); false: on the molecule itself
      * @param namePrefix           prefix of the component names, e.g. "PubChem" or "ECFP4"
      */
-    FingerprintCalculation(Supplier<IFingerprinter> fingerprinterFactory, int poolSize, boolean isCounts, String namePrefix) {
+    FingerprintCalculation(Supplier<IFingerprinter> fingerprinterFactory, int poolSize, boolean isCounts, boolean copiesMolecule, String namePrefix) {
         this.pool = new LinkedBlockingQueue<>(poolSize);
         for (int i = 0; i < poolSize; i++) {
             this.pool.add(fingerprinterFactory.get());
         }
         this.isCounts = isCounts;
+        this.copiesMolecule = copiesMolecule;
         this.namePrefix = namePrefix;
         this.size = this.pool.peek().getSize();
     }
@@ -167,20 +177,22 @@ final class FingerprintCalculation implements DescriptorCalculation {
         // take() blocks until a fingerprinter is available; InterruptedException propagates to the caller
         IFingerprinter fingerprinter = this.pool.take();
         try {
+            // a change of the molecule would change the molecule of the caller and the descriptors calculated afterwards
+            IAtomContainer molecule = this.copiesMolecule ? DescriptorCalculator.copyMolecule(atomContainer) : atomContainer;
             if (this.isCounts) {
-                ICountFingerprint countFingerprint = fingerprinter.getCountFingerprint(atomContainer);
+                ICountFingerprint countFingerprint = fingerprinter.getCountFingerprint(molecule);
                 Arrays.fill(vector, startIndex, startIndex + this.size, 0.0f);
                 for (int i = 0; i < countFingerprint.numOfPopulatedbins(); i++) {
                     vector[startIndex + FingerprintCalculation.fold(countFingerprint.getHash(i), this.size)] += countFingerprint.getCount(i);
                 }
             } else {
-                IBitFingerprint bitFingerprint = fingerprinter.getBitFingerprint(atomContainer);
+                IBitFingerprint bitFingerprint = fingerprinter.getBitFingerprint(molecule);
                 for (int i = 0; i < this.size; i++) {
                     vector[startIndex + i] = bitFingerprint.get(i) ? 1.0f : 0.0f;
                 }
             }
             return true;
-        } catch (CDKException | RuntimeException exception) {
+        } catch (CDKException | CloneNotSupportedException | RuntimeException exception) {
             LOGGER.warn("Failed to calculate: " + descriptor.name(), exception);
             return false;
         } catch (StackOverflowError error) {
