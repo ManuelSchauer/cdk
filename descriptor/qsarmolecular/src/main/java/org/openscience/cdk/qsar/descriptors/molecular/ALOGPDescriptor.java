@@ -49,8 +49,8 @@ import java.util.List;
  * This class calculates ALOGP (Ghose-Crippen LogKow) and the
  * Ghose-Crippen molar refractivity {@cdk.cite GHOSE1986,GHOSE1987}.
  * <p></p>
- * <b>Note:</b> The code assumes that aromaticity has been detected before
- * evaluating this descriptor. The code also expects that the molecule
+ * <b>Note:</b> The code assumes that the aromaticity of atoms and bonds has been
+ * detected before evaluating this descriptor. The code also expects that the molecule
  * will have hydrogens explicitly set. For SD files, this is usually not
  * a problem since hydrogens are explicit. But for the case of molecules
  * obtained from SMILES, hydrogens must be made explicit.
@@ -1981,16 +1981,18 @@ public class ALOGPDescriptor extends AbstractMolecularDescriptor implements IMol
     }
 
     /**
-     * Returns whether two bonded atoms are in the same aromatic ring, i.e. whether the bond between them is aromatic.
+     * Returns whether two bonded atoms are in the same aromatic ring, i.e. whether both atoms and the bond between
+     * them are aromatic.
      *
      * @param atomContainer the molecule
      * @param atom1 an atom
      * @param atom2 an atom bonded to atom1
-     * @return true if the bond between both atoms is aromatic
+     * @return true if both atoms and the bond between them are aromatic
      */
     private boolean inSameAromaticRing(IAtomContainer atomContainer, IAtom atom1, IAtom atom2) {
         IBond bond = atomContainer.getBond(atom1, atom2);
-        return bond != null && bond.isAromatic();
+        // same condition as for an aromatic bond in the E-state atom type
+        return bond != null && bond.isAromatic() && atom1.isAromatic() && atom2.isAromatic();
     }
 
     /**
@@ -2004,8 +2006,9 @@ public class ALOGPDescriptor extends AbstractMolecularDescriptor implements IMol
         //TODO Ideally we should explicit H addition should be cached
         // estate fragments for each atom
         String[] fragment = new String[container.getAtomCount()];
-        // no ring set: the matcher uses the aromatic flag of the bonds, so no rings need to be found
+        // the matcher uses the aromatic flag of the bonds, so no rings need to be found
         EStateAtomTypeMatcher eStateMatcher = new EStateAtomTypeMatcher();
+        eStateMatcher.setUseBondAromaticity(true);
 
         for (int i = 0; i < container.getAtomCount(); i++) {
             IAtomType atomType = eStateMatcher.findMatchingAtomType(container, container.getAtom(i));

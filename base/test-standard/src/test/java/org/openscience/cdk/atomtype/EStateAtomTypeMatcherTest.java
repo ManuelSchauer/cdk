@@ -366,10 +366,11 @@ class EStateAtomTypeMatcherTest extends CDKTestCase {
     }
 
     /**
-     * Without a ring set, two bonded aromatic atoms are in the same aromatic ring if the bond between them is aromatic.
+     * With bond aromaticity, two bonded aromatic atoms are in the same aromatic ring if the bond between them is
+     * aromatic, no ring set is needed.
      */
     @Test
-    void testTolueneWithoutRingSet() throws Exception {
+    void testTolueneBondAromaticity() throws Exception {
         SmilesParser sp = new SmilesParser(DefaultChemObjectBuilder.getInstance());
         IAtomContainer toluene = sp.parseSmiles("Cc1ccccc1");
         AtomContainerManipulator.percieveAtomTypesAndConfigureAtoms(toluene);
@@ -377,6 +378,7 @@ class EStateAtomTypeMatcherTest extends CDKTestCase {
         AtomContainerManipulator.convertImplicitToExplicitHydrogens(toluene);
 
         EStateAtomTypeMatcher matcherWithoutRingSet = new EStateAtomTypeMatcher();
+        matcherWithoutRingSet.setUseBondAromaticity(true);
         Assertions.assertEquals("SsCH3", matcherWithoutRingSet.findMatchingAtomType(toluene, toluene.getAtom(0)).getAtomTypeName());
         Assertions.assertEquals("SsaaC", matcherWithoutRingSet.findMatchingAtomType(toluene, toluene.getAtom(1)).getAtomTypeName());
         for (int i = 2; i <= 6; i++) {
