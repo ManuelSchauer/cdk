@@ -365,6 +365,25 @@ class EStateAtomTypeMatcherTest extends CDKTestCase {
         }
     }
 
+    /**
+     * Without a ring set, two bonded aromatic atoms are in the same aromatic ring if the bond between them is aromatic.
+     */
+    @Test
+    void testTolueneWithoutRingSet() throws Exception {
+        SmilesParser sp = new SmilesParser(DefaultChemObjectBuilder.getInstance());
+        IAtomContainer toluene = sp.parseSmiles("Cc1ccccc1");
+        AtomContainerManipulator.percieveAtomTypesAndConfigureAtoms(toluene);
+        Aromaticity.cdkLegacy().apply(toluene);
+        AtomContainerManipulator.convertImplicitToExplicitHydrogens(toluene);
+
+        EStateAtomTypeMatcher matcherWithoutRingSet = new EStateAtomTypeMatcher();
+        Assertions.assertEquals("SsCH3", matcherWithoutRingSet.findMatchingAtomType(toluene, toluene.getAtom(0)).getAtomTypeName());
+        Assertions.assertEquals("SsaaC", matcherWithoutRingSet.findMatchingAtomType(toluene, toluene.getAtom(1)).getAtomTypeName());
+        for (int i = 2; i <= 6; i++) {
+            Assertions.assertEquals("SaaCH", matcherWithoutRingSet.findMatchingAtomType(toluene, toluene.getAtom(i)).getAtomTypeName());
+        }
+    }
+
     @Test
     void testNaphthalene() {
         //Testing with C1=CC2C=CC=CC=2C=C1

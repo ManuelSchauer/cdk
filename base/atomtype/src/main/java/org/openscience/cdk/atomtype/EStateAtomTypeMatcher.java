@@ -42,6 +42,13 @@ public class EStateAtomTypeMatcher implements IAtomTypeMatcher {
 
     IRingSet ringSet = null;
 
+    /**
+     * Sets the rings of the molecule, used to decide whether two bonded aromatic atoms are in the same aromatic ring.
+     * If no ring set is set, the aromatic flag of the bond between the two atoms is used instead, so the aromaticity
+     * of the bonds must be perceived.
+     *
+     * @param rs the rings of the molecule, or null to use the aromatic flags of the bonds
+     */
     public void setRingSet(IRingSet rs) {
         ringSet = rs;
     }
@@ -82,7 +89,7 @@ public class EStateAtomTypeMatcher implements IAtomTypeMatcher {
 
                 if (atom.getFlag(IChemObject.AROMATIC) && attached.getFlag(IChemObject.AROMATIC)) {
 
-                    boolean SameRing = inSameAromaticRing(atomContainer, atom, attached, ringSet);
+                    boolean SameRing = ringSet != null ? inSameAromaticRing(atomContainer, atom, attached, ringSet) : b.isAromatic();
 
                     if (SameRing) {
                         NumAromaticBonds2++;

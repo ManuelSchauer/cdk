@@ -23,6 +23,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.openscience.cdk.Bond;
 import org.openscience.cdk.DefaultChemObjectBuilder;
+import org.openscience.cdk.aromaticity.Aromaticity;
 import org.openscience.cdk.interfaces.IAtom;
 import org.openscience.cdk.interfaces.IAtomContainer;
 import org.openscience.cdk.interfaces.IBond;
@@ -91,6 +92,22 @@ class ALOGPDescriptorTest extends MolecularDescriptorTest {
             Assertions.assertFalse(atom.isInRing());
         for (IBond bond : mol.bonds())
             Assertions.assertFalse(bond.isInRing());
+    }
+
+    /**
+     * No rings are enumerated, so the descriptor can also be calculated for molecules with very many rings like C60
+     * (an all-rings search gives up for C60).
+     */
+    @Test
+    void testFullerene() throws Exception {
+        IAtomContainer mol = new SmilesParser(SilentChemObjectBuilder.getInstance()).parseSmiles(
+                "C12=C3C4=C5C6=C1C7=C8C9=C1C%10=C%11C(=C29)C3=C2C3=C4C4=C5C5=C9C6=C7C6=C7C8=C1C1=C8C%10=C%10C%11=C2C2=C3C3=C4C4=C5C5=C%11C%12=C(C6=C95)C7=C1C1=C%12C5=C%11C4=C3C3=C5C(=C81)C%10=C23");
+        AtomContainerManipulator.percieveAtomTypesAndConfigureAtoms(mol);
+        Aromaticity.apply(Aromaticity.Model.Daylight, mol);
+
+        DescriptorValue v = descriptor.calculate(mol);
+        Assertions.assertNull(v.getException());
+        Assertions.assertFalse(Double.isNaN(((DoubleArrayResult) v.getValue()).get(0)));
     }
 
 }
