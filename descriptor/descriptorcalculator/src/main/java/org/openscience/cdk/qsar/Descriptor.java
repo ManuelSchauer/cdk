@@ -364,6 +364,8 @@ public enum Descriptor {
     /**
      * Largest chain descriptor, calculates the number of atoms in the longest chain in the molecule.
      * This is a simple topological descriptor that provides a measure of molecular linearity.
+     * Note: Requires that ring atoms in the molecule have already been detected and marked (see
+     * {@link DescriptorCalculator#setAromaticity}); otherwise, ring atoms are counted as chain atoms.
      *
      * @see LargestChainDescriptor
      */
@@ -373,6 +375,9 @@ public enum Descriptor {
      * Longest aliphatic chain descriptor, calculates the number of atoms in the longest aliphatic chain.
      * This descriptor provides information about the maximum linear extent of non-aromatic
      * portions of the molecular structure, which relates to molecular shape properties.
+     * Note: Requires that ring atoms in the molecule have already been detected and marked (see
+     * {@link DescriptorCalculator#setAromaticity}); otherwise, ring carbons are treated as chain atoms, which yields
+     * wrong values or, if the chain search runs into a carbon ring, a stack overflow (NaN).
      *
      * @see LongestAliphaticChainDescriptor
      */

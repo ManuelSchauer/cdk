@@ -3871,6 +3871,84 @@ class DescriptorCalculatorTest {
     }
 
     /**
+     * Tests that a StackOverflowError outside the descriptor calculations only costs the row of this molecule: the
+     * ring marking (Cycles.markRingAtomsAndBonds, i.e. BiconnectedComponents) is recursive, so for a chain of 20,000
+     * carbon atoms it overflows a 512 KB thread stack while the molecule is prepared, i.e. in the SMILES parser (which
+     * marks the rings) and in setAromaticity. The molecule must yield NaN for all its components (recorded in the NaN
+     * positions), the following molecule must be calculated as usual and nothing must be thrown. Tested for both
+     * matrix methods for SMILES strings (sequential, i.e. in the small-stack thread), for calculateDescriptor with a
+     * SMILES string and for calculateDescriptor with an aromaticity model, whose setAromaticity overflows for the
+     * already parsed chain.
+     *
+     * @throws Exception if anything goes wrong
+     */
+    @Test
+    void test_StackOverflowOutsideDescriptor_YieldsNaNRow() throws Exception {
+        StringBuilder chain = new StringBuilder();
+        for (int i = 0; i < 20000; i++) {
+            chain.append('C');
+        }
+        String[] smiles = new String[]{chain.toString(), "CCO"};
+        Descriptor[] descriptors = new Descriptor[]{Descriptor.MOLECULAR_WEIGHT};
+        float expectedWeight = CALCULATOR.calculateDescriptor(Descriptor.MOLECULAR_WEIGHT, "CCO", Aromaticity.Model.Daylight)[0];
+
+        // the chain is parsed in a thread with a large stack, so that the parsing does not depend on the stack size of
+        // the test thread; then setAromaticity of calculateDescriptor overflows the small stack
+        AtomicReference<IAtomContainer> parsedChain = new AtomicReference<>();
+        Thread parserThread = new Thread(null, () -> {
+            try {
+                parsedChain.set(new SmilesParser(SilentChemObjectBuilder.getInstance()).parseSmiles(chain.toString()));
+            } catch (Exception exception) {
+                throw new IllegalStateException(exception);
+            }
+        }, "large-stack", 64L * 1024 * 1024);
+        parserThread.start();
+        parserThread.join();
+        Assertions.assertNotNull(parsedChain.get(), "the chain must be parsed with a large stack");
+        AtomicReference<float[]> preparedResult = new AtomicReference<>();
+        AtomicReference<Throwable> preparationError = new AtomicReference<>();
+        Thread preparationThread = new Thread(null, () -> {
+            try {
+                preparedResult.set(CALCULATOR.calculateDescriptor(Descriptor.MOLECULAR_WEIGHT, parsedChain.get(), Aromaticity.Model.Daylight));
+            } catch (Throwable throwable) {
+                preparationError.set(throwable);
+            }
+        }, "small-stack", 512 * 1024);
+        preparationThread.start();
+        preparationThread.join();
+        Assertions.assertNull(preparationError.get(), "the stack overflow in setAromaticity must not escape calculateDescriptor");
+        Assertions.assertTrue(Float.isNaN(preparedResult.get()[0]), "calculateDescriptor with an aromaticity model yields NaN");
+
+        for (boolean isBatch : new boolean[]{false, true}) {
+            String context = "batch=" + isBatch;
+            float[][] matrix = new float[smiles.length][CALCULATOR.getNumberOfComponents(descriptors)];
+            List<int[]> nanPositions = new ArrayList<>();
+            AtomicReference<Boolean> isSuccessful = new AtomicReference<>();
+            AtomicReference<float[]> singleResult = new AtomicReference<>();
+            AtomicReference<Throwable> error = new AtomicReference<>();
+            // sequential calculation in a thread with a small stack, so that the recursion overflows it
+            Thread thread = new Thread(null, () -> {
+                try {
+                    isSuccessful.set(isBatch
+                            ? CALCULATOR.setDescriptorsForMoleculeBySmilesStringsBatchParallelization(descriptors, smiles, matrix, 0, 1, null, false, nanPositions)
+                            : CALCULATOR.setDescriptorsForMoleculesBySmilesStringParallelization(descriptors, smiles, matrix, 0, null, false, nanPositions));
+                    singleResult.set(CALCULATOR.calculateDescriptor(Descriptor.MOLECULAR_WEIGHT, smiles[0], Aromaticity.Model.Daylight));
+                } catch (Throwable throwable) {
+                    error.set(throwable);
+                }
+            }, "small-stack", 512 * 1024);
+            thread.start();
+            thread.join();
+
+            Assertions.assertNull(error.get(), "the stack overflow must not escape the calculation, " + context);
+            Assertions.assertFalse(isSuccessful.get(), context);
+            DescriptorCalculatorTest.assertNaNRows(matrix, new int[]{0}, nanPositions, context);
+            Assertions.assertEquals(expectedWeight, matrix[1][0], "the following molecule is calculated as usual, " + context);
+            Assertions.assertTrue(Float.isNaN(singleResult.get()[0]), "calculateDescriptor yields NaN, " + context);
+        }
+    }
+
+    /**
      * Returns a copy of the NaN positions with the column index shifted by the given offset.
      *
      * @param nanPositions the NaN positions
@@ -4079,6 +4157,90 @@ class DescriptorCalculatorTest {
             Assertions.assertArrayEquals(new float[matrix[i].length], matrix[i], "calculation must not have started");
             Assertions.assertArrayEquals(new float[batchMatrix[i].length], batchMatrix[i], "calculation must not have started");
         }
+    }
+
+    /**
+     * Tests that an empty molecule does not abort a calculation with a descriptor that requires 3D coordinates,
+     * although it has no coordinates: like in every other calculation, it yields NaN for all its components (recorded
+     * in the NaN positions), and the other molecules are calculated as usual. Tested for molecule and batch
+     * parallelization, sequential and parallel.
+     *
+     * @throws Exception if anything goes wrong
+     */
+    @Test
+    void test_3DPrecondition_EmptyMoleculeYieldsNaNRow() throws Exception {
+        SmilesParser smilesParser = new SmilesParser(SilentChemObjectBuilder.getInstance());
+        IAtomContainer with3D = smilesParser.parseSmiles("CC");
+        with3D.getAtom(0).setPoint3d(new Point3d(0.0, 0.0, 0.0));
+        with3D.getAtom(1).setPoint3d(new Point3d(1.54, 0.0, 0.0));
+        IAtomContainer empty = SilentChemObjectBuilder.getInstance().newAtomContainer();
+        IAtomContainer[] molecules = new IAtomContainer[]{with3D, empty, with3D.clone()};
+        Descriptor[] descriptors = new Descriptor[]{Descriptor.MOLECULAR_WEIGHT, Descriptor.MOMENT_OF_INERTIA};
+        float[] weight = CALCULATOR.calculateDescriptor(Descriptor.MOLECULAR_WEIGHT, with3D);
+        float[] momentOfInertia = CALCULATOR.calculateDescriptor(Descriptor.MOMENT_OF_INERTIA, with3D);
+        float[] expectedRow = new float[weight.length + momentOfInertia.length];
+        System.arraycopy(weight, 0, expectedRow, 0, weight.length);
+        System.arraycopy(momentOfInertia, 0, expectedRow, weight.length, momentOfInertia.length);
+
+        for (boolean isParallel : new boolean[]{false, true}) {
+            for (boolean isBatch : new boolean[]{false, true}) {
+                String context = "parallel=" + isParallel + ", batch=" + isBatch;
+                float[][] matrix = new float[molecules.length][CALCULATOR.getNumberOfComponents(descriptors)];
+                List<int[]> nanPositions = new ArrayList<>();
+                boolean isSuccessful = isBatch
+                        ? CALCULATOR.setDescriptorsForMoleculesByBatchParallelization(descriptors, molecules, matrix, 0, 2, isParallel, nanPositions)
+                        : CALCULATOR.setDescriptorsForMoleculesByMoleculeParallelization(descriptors, molecules, matrix, 0, isParallel, nanPositions);
+
+                Assertions.assertFalse(isSuccessful, "the empty molecule yields NaN, " + context);
+                Assertions.assertArrayEquals(expectedRow, matrix[0], "row 0 is calculated as usual, " + context);
+                Assertions.assertArrayEquals(expectedRow, matrix[2], "row 2 is calculated as usual, " + context);
+                List<String> expectedPositions = new ArrayList<>();
+                for (int row = 0; row < matrix.length; row++) {
+                    for (int column = 0; column < matrix[row].length; column++) {
+                        if (row == 1) {
+                            Assertions.assertTrue(Float.isNaN(matrix[row][column]), "the empty molecule is a NaN row, " + context);
+                        }
+                        if (Float.isNaN(matrix[row][column])) {
+                            expectedPositions.add(row + "," + column);
+                        }
+                    }
+                }
+                List<String> actualPositions = new ArrayList<>();
+                for (int[] position : nanPositions) {
+                    actualPositions.add(position[0] + "," + position[1]);
+                }
+                Assertions.assertEquals(expectedPositions, actualPositions, "NaN positions must be the NaN entries, " + context);
+            }
+        }
+    }
+
+    /**
+     * Tests that infinite values are no valid component values: checkAndTrackNaNValues sets them to NaN and tracks them
+     * like NaN values, only in the given component range; finite values are not changed. Infinite values can be
+     * produced by a CDK descriptor, e.g. by a division by zero or a double value that is too large for a float.
+     */
+    @Test
+    void test_InfiniteValues_SetToNaNAndTracked() {
+        float[] vector = new float[]{Float.POSITIVE_INFINITY, 1.5f, Float.POSITIVE_INFINITY, Float.NaN, Float.NEGATIVE_INFINITY, -2.0f};
+        List<int[]> nanPositions = new ArrayList<>();
+        // the descriptor occupies the components 1 to 4 of the vector of molecule 7
+        Assertions.assertTrue(DescriptorCalculator.checkAndTrackNaNValues(vector, 1, 4, 7, nanPositions));
+        Assertions.assertArrayEquals(new float[]{Float.POSITIVE_INFINITY, 1.5f, Float.NaN, Float.NaN, Float.NaN, -2.0f}, vector,
+                "only the infinite values of the component range are set to NaN");
+        List<String> actualPositions = new ArrayList<>();
+        for (int[] position : nanPositions) {
+            actualPositions.add(position[0] + "," + position[1]);
+        }
+        Assertions.assertEquals(Arrays.asList("7,2", "7,3", "7,4"), actualPositions);
+
+        float[] finiteVector = new float[]{0.0f, -1.0f, Float.MAX_VALUE, -Float.MAX_VALUE};
+        Assertions.assertFalse(DescriptorCalculator.checkAndTrackNaNValues(finiteVector, 0, finiteVector.length, 0, nanPositions));
+        Assertions.assertArrayEquals(new float[]{0.0f, -1.0f, Float.MAX_VALUE, -Float.MAX_VALUE}, finiteVector);
+        Assertions.assertEquals(3, nanPositions.size(), "finite values are not tracked");
+
+        float[] untrackedVector = new float[]{Float.NEGATIVE_INFINITY};
+        Assertions.assertTrue(DescriptorCalculator.checkAndTrackNaNValues(untrackedVector, 0, 1, 0, null));
+        Assertions.assertTrue(Float.isNaN(untrackedVector[0]), "also set to NaN without tracking");
     }
 
     /**

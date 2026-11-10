@@ -83,53 +83,64 @@ import java.util.stream.IntStream;
  *         <tr>
  *             <td>{@link #setDescriptorsForMoleculesByMoleculeParallelization}</td>
  *             <td>{@link IAtomContainer IAtomContainer[]}</td>
- *             <td>One thread per <b>molecule</b> (Java parallel stream over all molecule indices)</td>
+ *             <td><b>Molecule</b> indices (Java parallel stream over all molecule indices)</td>
  *             <td>–</td>
  *         </tr>
  *         <tr>
  *             <td>{@link #setDescriptorsForMoleculesByBatchParallelization}</td>
  *             <td>{@link IAtomContainer IAtomContainer[]}</td>
- *             <td>One thread per <b>batch</b> of molecules (parallel stream over batch indices)</td>
+ *             <td><b>Batches</b> of molecules (parallel stream over batch indices)</td>
  *             <td>{@code batchSize} – number of molecules per batch</td>
  *         </tr>
  *         <tr>
  *             <td>{@link #setDescriptorsForMoleculesBySmilesStringParallelization}</td>
  *             <td>{@code String[]} (SMILES)</td>
- *             <td>One thread per <b>molecule</b> (Java parallel stream over all molecule indices)</td>
- *             <td>{@code electronDonationModel} – aromaticity model applied during SMILES parsing</td>
+ *             <td><b>Molecule</b> indices (Java parallel stream over all molecule indices)</td>
+ *             <td>{@code electronDonationModel} – aromaticity model applied after SMILES parsing</td>
  *         </tr>
  *         <tr>
  *             <td>{@link #setDescriptorsForMoleculeBySmilesStringsBatchParallelization}</td>
  *             <td>{@code String[]} (SMILES)</td>
- *             <td>One thread per <b>batch</b> of molecules (parallel stream over batch indices)</td>
+ *             <td><b>Batches</b> of molecules (parallel stream over batch indices)</td>
  *             <td>{@code batchSize}, {@code electronDonationModel}</td>
  *         </tr>
  *     </table>
  *     <br>
- *     <b>Molecule-level parallelization</b> ({@code ...ByMoleculeParallelization}) dispatches every molecule as an
- *     independent work item to Java's common fork-join pool via {@link IntStream#parallel()}.
- *     This provides fine-grained load balancing and is generally the preferred choice when the molecule set is
- *     large and individual descriptor calculations vary in cost.
+ *     <b>Molecule-level parallelization</b> ({@code ...ByMoleculeParallelization}) processes the molecule indices
+ *     with a parallel stream ({@link IntStream#parallel()}) on Java's common fork-join pool. Note: The parallel
+ *     stream does not create one task per molecule. It splits the index range into parts of consecutive molecules
+ *     (roughly at most n / (4 * p) molecules each, with n the number of molecules and p the parallelism of the
+ *     common fork-join pool); the molecules of a part are processed sequentially by one thread, and idle threads
+ *     take over parts that have not been started yet.
  *     <br><br>
- *     <b>Batch-level parallelization</b> ({@code ...ByBatchParallelization}) first divides the molecule array into
- *     fixed-size batches of {@code batchSize} molecules and then submits one batch per fork-join task. Within
- *     each batch, molecules are processed sequentially. This strategy can reduce fork-join overhead for very fast
- *     descriptors or when the overhead of spawning one task per molecule would dominate.
+ *     <b>Batch-level parallelization</b> ({@code ...ByBatchParallelization}) divides the molecule array into
+ *     batches of {@code batchSize} molecules and processes the batch indices with a parallel stream in the same
+ *     way; the molecules of a batch are processed sequentially. Because the parallel stream groups consecutive
+ *     batches into parts like consecutive molecules (see above), a batch size larger than about n / (4 * p) makes
+ *     the parts coarser, while a smaller batch size does not make them finer.
  *     <br><br>
  *     <b>SMILES-based methods</b> additionally parse each SMILES string into an
  *     {@link IAtomContainer} and apply aromaticity perception (using the supplied
  *     {@link ElectronDonation} model, or {@code Daylight} by default if
  *     {@code null} is passed) before descriptor calculation. Pre-parsed {@code IAtomContainer} methods skip this
- *     step; aromaticity must have been perceived on the containers beforehand (e.g. via
- *     {@link #setAromaticity(IAtomContainer, ElectronDonation)}).
+ *     step: the molecules must have been prepared beforehand like
+ *     {@link #setAromaticity(IAtomContainer, ElectronDonation)} does it, i.e. explicit hydrogens suppressed
+ *     (minimal hydrogen representation), CDK atom types perceived and configured, ring atoms and bonds marked and
+ *     aromaticity perceived. Some descriptors rely on this preparation without reporting a missing one: e.g.
+ *     {@link Descriptor#LARGEST_CHAIN} and {@link Descriptor#LONGEST_ALIPHATIC_CHAIN} use the ring flags of the atoms
+ *     ({@link IAtom#isInRing()}). Without marked ring atoms, LARGEST_CHAIN yields wrong values instead of NaN, and
+ *     LONGEST_ALIPHATIC_CHAIN yields wrong values or, if its chain search runs into an unmarked carbon ring, NaN
+ *     after a stack overflow.
  *     <br><br>
  *     All four methods share the same result convention: they return {@code true} if every descriptor value was
  *     computed without producing {@link Float#NaN}, and {@code false} if at least one NaN was encountered or if the
  *     calculation was aborted before it started, i.e. if the given descriptor or molecule array is empty or a
- *     descriptor requires 3D coordinates that are not available (always the case for SMILES input); in the latter
- *     cases, the matrix is not changed. A molecule that cannot be calculated at all, i.e. an empty molecule, an
- *     empty or invalid SMILES string or a molecule for which e.g. the aromaticity perception fails, yields NaN for
- *     all its components, so that its row cannot be mistaken for valid values. NaN
+ *     descriptor requires 3D coordinates that are not available for a non-empty molecule (always the case for SMILES
+ *     input); in the latter cases, the matrix is not changed. A molecule that cannot be calculated at all, i.e. an
+ *     empty molecule, an empty or invalid SMILES string or a molecule for which e.g. the aromaticity perception fails
+ *     (including a stack overflow in the preparation of a very large molecule), yields NaN for all its components,
+ *     so that its row cannot be mistaken for valid values. Infinite values are no valid values either: they are set
+ *     to NaN and recorded like NaN values, so that the matrix only contains finite values or NaN. NaN
  *     positions are additionally recorded in the caller-supplied {@code nanPositionsList} list as
  *     {@code int[]{moleculeIndex, componentIndex}} pairs, sorted by molecule index and component index. Any
  *     modifiable list can be used, also for parallel executions.
@@ -349,7 +360,7 @@ public final class DescriptorCalculator {
         try {
             return this.calculations.get(descriptor).calculate(descriptor, atomContainer, vector, startIndex);
         } catch (InterruptedException exception) {
-            LOGGER.warn("Interrupted while waiting for fingerprinter instance from pool. This should not happen.", exception);
+            // an interruption cancels the calculation, it is handled by the callers
             throw exception;
         } catch (Exception exception) {
             LOGGER.error("Descriptor ", descriptor.name(), " failed to calculate: ", exception.getMessage());
@@ -622,14 +633,15 @@ public final class DescriptorCalculator {
      * <p>
      * This method is a convenience wrapper around the internal {@link #calculate} method for
      * single descriptor calculations. If the calculation fails or the molecule is empty, all values in the result array
-     * will be set to {@link Float#NaN}.
+     * will be set to {@link Float#NaN}. Infinite component values are no valid values either and are set to NaN, too.
      * <p>
-     * <b>Important:</b> The molecule must have aromaticity already perceived if required by the descriptor.
-     * Use {@link #setAromaticity(IAtomContainer, ElectronDonation)} before calling this method if needed.
+     * <b>Important:</b> The molecule must have been prepared like {@link #setAromaticity(IAtomContainer, ElectronDonation)}
+     * does it (see the class documentation): some descriptors rely on the preparation without reporting a missing one,
+     * e.g. LARGEST_CHAIN uses the ring flags of the atoms. Use setAromaticity before calling this method if needed.
      *
      * @param descriptor The descriptor to calculate (must not be null)
      * @param molecule The molecule to calculate the descriptor for (must not be null);
-     *                  aromaticity must be perceived beforehand if required; if it is empty, NaN values are returned
+     *                  it must have been prepared beforehand, see above; if it is empty, NaN values are returned
      * @return A float array containing the calculated descriptor components. Length equals
      *         {@link #getNumberOfComponents(Descriptor)}. Contains NaN values if calculation fails.
      */
@@ -665,12 +677,15 @@ public final class DescriptorCalculator {
             }
             if (!success) {
                 Arrays.fill(result, Float.NaN);
+            } else {
+                // infinite values are set to NaN, like in the data matrix (see checkAndTrackNaNValues)
+                DescriptorCalculator.checkAndTrackNaNValues(result, 0, result.length, 0, null);
             }
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             Arrays.fill(result, Float.NaN);
             DescriptorCalculator.LOGGER.warn("Interrupted while calculating descriptor " + descriptor.getName(), exception);
-        } catch (Exception exception) {
+        } catch (Exception | StackOverflowError exception) {
             // Fill with NaN on failure and log the error
             Arrays.fill(result, Float.NaN);
             DescriptorCalculator.LOGGER.warn(String.format("Failed to calculate descriptor %s: %s", descriptor.getName(), exception.getMessage()), exception);
@@ -716,7 +731,7 @@ public final class DescriptorCalculator {
         try {
             DescriptorCalculator.setAromaticity(molecule, electronDonationModel);
             return this.calculateDescriptor(descriptor, molecule);
-        } catch (Exception exception) {
+        } catch (Exception | StackOverflowError exception) {
             float[] result = new float[this.getNumberOfComponents(descriptor)];
             Arrays.fill(result, Float.NaN);
             DescriptorCalculator.LOGGER.warn(String.format("Failed to calculate descriptor %s: %s", descriptor.getName(), exception.getMessage()), exception);
@@ -764,7 +779,7 @@ public final class DescriptorCalculator {
             IAtomContainer molecule = DescriptorCalculator.SMILES_PARSER.parseSmiles(smilesString);
             DescriptorCalculator.setAromaticity(molecule, electronDonationModel);
             return this.calculateDescriptor(descriptor, molecule);
-        } catch (Exception exception) {
+        } catch (Exception | StackOverflowError exception) {
             float[] result = new float[this.getNumberOfComponents(descriptor)];
             Arrays.fill(result, Float.NaN);
             DescriptorCalculator.LOGGER.warn(String.format("Failed to calculate descriptor %s: %s", descriptor.getName(), exception.getMessage()), exception);
@@ -776,14 +791,18 @@ public final class DescriptorCalculator {
     /**
      * Sets calculated descriptor components in vectors (rows) of a matrix (that corresponds to atomContainerArray)
      * beginning with startIndex by (optional) parallelization of molecule batches. If parallel computation is used, the atom
-     * container batches (molecules) are distributed onto parallel thread, one for each molecule batch, and they all access shared
+     * container batches (molecules) are processed by a
+     * parallel stream on the common fork-join pool (see the class documentation), and all threads access shared
      * descriptor instances.
-     * Note: For fingerprints a blocked queue is used, because fingerprinter instances are not threadsafe.
+     * Note: For fingerprints a blocking queue is used, because fingerprinter instances are not threadsafe.
      * The pool size is set in the constructor, see {@link #DescriptorCalculator(int, int, boolean)}.
      *
      * @param descriptors Array of descriptors to be calculated (IS NOT CHANGED)
      * @param atomContainerArray Array of molecules. Note: atomContainerArray[i] corresponds to matrix[i] data
-     *                             vector, i.e. the molecules define the rows of the matrix (IS NOT CHANGED)
+     *                             vector, i.e. the molecules define the rows of the matrix (IS NOT CHANGED); the
+     *                             molecules must have been prepared, e.g. with
+     *                             {@link #setAromaticity(IAtomContainer, ElectronDonation)} (see the class
+     *                             documentation)
      * @param matrix Matrix of component vectors of molecules. Note: Data vector matrix[i] corresponds to molecule
      *                atomContainerArray[i]. (MAY BE CHANGED)
      * @param startIndex Start index in a vector to be filled with calculated components of descriptors, i.e. matrix
@@ -797,14 +816,20 @@ public final class DescriptorCalculator {
      *         calculation is NaN (an empty or invalid molecule yields NaN for all its components), a global exception
      *         occurred, or the calculation was aborted before it started
      *         because the given descriptor or molecule array is empty or a descriptor requires 3D coordinates that are
-     *         not available (in this case, the matrix is not changed)
+     *         not available for a non-empty molecule (in this case, the matrix is not changed; an empty molecule
+     *         yields NaN for all its components)
      * @throws IllegalArgumentException if the matrix dimensions or the start index are invalid or if batch size is
      *                                  &lt;= 0
      * @throws InterruptedException if the current thread is interrupted during sequential fingerprint
      *                              calculation; in parallel mode, interruption is handled internally
      *                              by restoring the thread's interrupt flag via
      *                              {@link Thread#interrupt()}, and the molecules that cannot be calculated
-     *                              because of the interruption yield NaN for all their components
+     *                              because of the interruption yield NaN for all their components.
+     *                              Note: An interruption of the calling thread is only noticed by the next
+     *                              fingerprint calculation on this thread, when it takes a pooled fingerprinter
+     *                              instance; until then (and in parallel mode on the other threads), the
+     *                              calculation continues as usual. Without fingerprint descriptors, the whole
+     *                              calculation is completed and the interrupt status remains set.
      */
     public boolean setDescriptorsForMoleculesByBatchParallelization(
             Descriptor[] descriptors,
@@ -828,7 +853,8 @@ public final class DescriptorCalculator {
         for (Descriptor descriptor : descriptors) {
             if (descriptor.requires3DCoordinates()) {
                 for (int i = 0; i < atomContainerArray.length; i++) {
-                    if (!GeometryUtil.has3DCoordinates(atomContainerArray[i])) {
+                    // an empty molecule has no coordinates, but it yields NaN for all its components anyway
+                    if (!atomContainerArray[i].isEmpty() && !GeometryUtil.has3DCoordinates(atomContainerArray[i])) {
                         DescriptorCalculator.LOGGER.warn(methodName + " : At least one descriptor requires 3D coordinates, but molecule " + i + " does not have 3D coordinates. Calculation aborted.");
                         return false;
                     }
@@ -842,7 +868,7 @@ public final class DescriptorCalculator {
         if (batchSize <= 0) {
             throw new IllegalArgumentException(methodName + ": batchSize must be greater than 0 but was " + batchSize + ".");
         }
-        // throws NullPointerException or IllegalArgumentException if the matrix or on eof its rows is null or its dimensions are invalid
+        // throws NullPointerException or IllegalArgumentException if the matrix or one of its rows is null or its dimensions are invalid
         this.validateMatrix(matrix, descriptors, atomContainerArray, startIndex, methodName);
 
         int numberOfMolecules = atomContainerArray.length;
@@ -883,7 +909,7 @@ public final class DescriptorCalculator {
                             Thread.currentThread().interrupt();
                             hasNaN.set(true);
                             this.setNaNForMolecule(descriptors, matrix[i], startIndices, i, collectedNanPositions);
-                        } catch (Exception exception) {
+                        } catch (Exception | StackOverflowError exception) {
                             hasNaN.set(true);
                             this.setNaNForMolecule(descriptors, matrix[i], startIndices, i, collectedNanPositions);
                             DescriptorCalculator.LOGGER.warn(
@@ -902,7 +928,7 @@ public final class DescriptorCalculator {
                         }
                     } catch (InterruptedException exception) {
                         throw exception;
-                    } catch (Exception exception) {
+                    } catch (Exception | StackOverflowError exception) {
                         hasNaN.set(true);
                         this.setNaNForMolecule(descriptors, matrix[i], startIndices, i, collectedNanPositions);
                         DescriptorCalculator.LOGGER.warn(
@@ -930,9 +956,10 @@ public final class DescriptorCalculator {
     /**
      * Sets calculated descriptor components in vectors (rows) of a matrix (that corresponds to atomContainerArray)
      * beginning with startIndex by (optional) parallelization of molecule batches. If parallel computation is used, the smiles string
-     * batches (molecules) are distributed onto parallel thread, one for each molecule batch, and they all access shared
+     * batches (molecules) are processed by a
+     * parallel stream on the common fork-join pool (see the class documentation), and all threads access shared
      * descriptor instances.
-     * Note: For fingerprints a blocked queue is used, because fingerprinter instances are not threadsafe.
+     * Note: For fingerprints a blocking queue is used, because fingerprinter instances are not threadsafe.
      * The pool size is set in the constructor, see {@link #DescriptorCalculator(int, int, boolean)}.
      *
      * @param descriptors Array of descriptors to be calculated (IS NOT CHANGED)
@@ -960,7 +987,12 @@ public final class DescriptorCalculator {
      *                              calculation; in parallel mode, interruption is handled internally
      *                              by restoring the thread's interrupt flag via
      *                              {@link Thread#interrupt()}, and the molecules that cannot be calculated
-     *                              because of the interruption yield NaN for all their components
+     *                              because of the interruption yield NaN for all their components.
+     *                              Note: An interruption of the calling thread is only noticed by the next
+     *                              fingerprint calculation on this thread, when it takes a pooled fingerprinter
+     *                              instance; until then (and in parallel mode on the other threads), the
+     *                              calculation continues as usual. Without fingerprint descriptors, the whole
+     *                              calculation is completed and the interrupt status remains set.
      */
     public boolean setDescriptorsForMoleculeBySmilesStringsBatchParallelization(
             Descriptor[] descriptors,
@@ -994,7 +1026,7 @@ public final class DescriptorCalculator {
         if (batchSize <= 0) {
             throw new IllegalArgumentException(methodName + ": batchSize must be greater than 0 but was " + batchSize + ".");
         }
-        // throws NullPointerException or IllegalArgumentException if the matrix or on eof its rows is null or its dimensions are invalid
+        // throws NullPointerException or IllegalArgumentException if the matrix or one of its rows is null or its dimensions are invalid
         this.validateMatrix(matrix, descriptors, moleculeSmilesStringArray, startIndex, methodName);
 
         int numberOfMolecules = moleculeSmilesStringArray.length;
@@ -1036,7 +1068,7 @@ public final class DescriptorCalculator {
                             Thread.currentThread().interrupt();
                             hasNaN.set(true);
                             this.setNaNForMolecule(descriptors, matrix[i], startIndices, i, collectedNanPositions);
-                        } catch (Exception exception) {
+                        } catch (Exception | StackOverflowError exception) {
                             hasNaN.set(true);
                             this.setNaNForMolecule(descriptors, matrix[i], startIndices, i, collectedNanPositions);
                             DescriptorCalculator.LOGGER.warn(
@@ -1055,7 +1087,7 @@ public final class DescriptorCalculator {
                         }
                     } catch (InterruptedException exception) {
                         throw exception;
-                    } catch (Exception exception) {
+                    } catch (Exception | StackOverflowError exception) {
                         hasNaN.set(true);
                         this.setNaNForMolecule(descriptors, matrix[i], startIndices, i, collectedNanPositions);
                         DescriptorCalculator.LOGGER.warn(
@@ -1083,14 +1115,18 @@ public final class DescriptorCalculator {
     /**
      * Sets calculated descriptor components in vectors (rows) of a matrix (that corresponds to atomContainerArray)
      * beginning with startIndex by (optional) parallelization of molecules. If parallel computation is used, the atom
-     * containers (molecules) are distributed onto parallel thread, one for each molecule, and they all access shared
+     * containers (molecules) are processed by a
+     * parallel stream on the common fork-join pool (see the class documentation), and all threads access shared
      * descriptor instances.
-     * Note: For fingerprints a blocked queue is used, because fingerprinter instances are not threadsafe.
+     * Note: For fingerprints a blocking queue is used, because fingerprinter instances are not threadsafe.
      * The pool size is set in the constructor, see {@link #DescriptorCalculator(int, int, boolean)}.
      *
      * @param descriptors Array of descriptors to be calculated (IS NOT CHANGED)
      * @param atomContainerArray Array of molecules. Note: atomContainerArray[i] corresponds to matrix[i] data
-     *                             vector, i.e. the molecules define the rows of the matrix (IS NOT CHANGED)
+     *                             vector, i.e. the molecules define the rows of the matrix (IS NOT CHANGED); the
+     *                             molecules must have been prepared, e.g. with
+     *                             {@link #setAromaticity(IAtomContainer, ElectronDonation)} (see the class
+     *                             documentation)
      * @param matrix Matrix of component vectors of molecules. Note: Data vector matrix[i] corresponds to molecule
      *                atomContainerArray[i]. (MAY BE CHANGED)
      * @param startIndex Start index in a vector to be filled with calculated components of descriptors, i.e. matrix
@@ -1103,13 +1139,19 @@ public final class DescriptorCalculator {
      *         calculation is NaN (an empty or invalid molecule yields NaN for all its components), a global exception
      *         occurred, or the calculation was aborted before it started
      *         because the given descriptor or molecule array is empty or a descriptor requires 3D coordinates that are
-     *         not available (in this case, the matrix is not changed)
+     *         not available for a non-empty molecule (in this case, the matrix is not changed; an empty molecule
+     *         yields NaN for all its components)
      * @throws IllegalArgumentException if the matrix dimensions or the start index are invalid
      * @throws InterruptedException if the current thread is interrupted during sequential fingerprint
      *                              calculation; in parallel mode, interruption is handled internally
      *                              by restoring the thread's interrupt flag via
      *                              {@link Thread#interrupt()}, and the molecules that cannot be calculated
-     *                              because of the interruption yield NaN for all their components
+     *                              because of the interruption yield NaN for all their components.
+     *                              Note: An interruption of the calling thread is only noticed by the next
+     *                              fingerprint calculation on this thread, when it takes a pooled fingerprinter
+     *                              instance; until then (and in parallel mode on the other threads), the
+     *                              calculation continues as usual. Without fingerprint descriptors, the whole
+     *                              calculation is completed and the interrupt status remains set.
      */
     public boolean setDescriptorsForMoleculesByMoleculeParallelization(
             Descriptor[] descriptors,
@@ -1132,7 +1174,8 @@ public final class DescriptorCalculator {
         for (Descriptor descriptor : descriptors) {
             if (descriptor.requires3DCoordinates()) {
                 for (int i = 0; i < atomContainerArray.length; i++) {
-                    if (!GeometryUtil.has3DCoordinates(atomContainerArray[i])) {
+                    // an empty molecule has no coordinates, but it yields NaN for all its components anyway
+                    if (!atomContainerArray[i].isEmpty() && !GeometryUtil.has3DCoordinates(atomContainerArray[i])) {
                         DescriptorCalculator.LOGGER.warn(methodName + " : At least one descriptor requires 3D coordinates, but molecule " + i + " does not have 3D coordinates. Calculation aborted.");
                         return false;
                     }
@@ -1143,7 +1186,7 @@ public final class DescriptorCalculator {
         if (nanPositionsList == null) {
             throw new NullPointerException(methodName + ": nanPositionsList is null.");
         }
-        // throws NullPointerException or IllegalArgumentException if the matrix or on eof its rows is null or its dimensions are invalid
+        // throws NullPointerException or IllegalArgumentException if the matrix or one of its rows is null or its dimensions are invalid
         this.validateMatrix(matrix, descriptors, atomContainerArray, startIndex, methodName);
 
         int[] startIndices = new int[descriptors.length];
@@ -1158,7 +1201,7 @@ public final class DescriptorCalculator {
         try {
             if (isParallelCalculation) {
 
-                // Advise by Oracle: Parallel streams should use the common Fork-join pool
+                // the parallel stream runs on the common fork-join pool
                 IntStream.range(0, atomContainerArray.length).parallel().forEach(
                         i ->
                         {
@@ -1180,7 +1223,7 @@ public final class DescriptorCalculator {
                                 Thread.currentThread().interrupt();
                                 hasNaN.set(true);
                                 this.setNaNForMolecule(descriptors, matrix[i], startIndices, i, collectedNanPositions);
-                            } catch (Exception exception) {
+                            } catch (Exception | StackOverflowError exception) {
                                 hasNaN.set(true);
                                 this.setNaNForMolecule(descriptors, matrix[i], startIndices, i, collectedNanPositions);
                                 DescriptorCalculator.LOGGER.warn(
@@ -1198,7 +1241,7 @@ public final class DescriptorCalculator {
                         }
                     } catch (InterruptedException exception) {
                         throw exception;
-                    } catch (Exception exception) {
+                    } catch (Exception | StackOverflowError exception) {
                         hasNaN.set(true);
                         this.setNaNForMolecule(descriptors, matrix[i], startIndices, i, collectedNanPositions);
                         DescriptorCalculator.LOGGER.warn(
@@ -1226,9 +1269,10 @@ public final class DescriptorCalculator {
     /**
      * Sets calculated descriptor components in vectors (rows) of a matrix (that corresponds to atomContainerArray)
      * beginning with startIndex by (optional) parallelization of molecules. If parallel computation is used, the smiles strings
-     * (molecules) are distributed onto parallel thread, one for each molecule, and they all access shared
+     * (molecules) are processed by a
+     * parallel stream on the common fork-join pool (see the class documentation), and all threads access shared
      * descriptor instances.
-     * Note: For fingerprints a blocked queue is used, because fingerprinter instances are not threadsafe.
+     * Note: For fingerprints a blocking queue is used, because fingerprinter instances are not threadsafe.
      * The pool size is set in the constructor, see {@link #DescriptorCalculator(int, int, boolean)}.
      *
      * @param descriptors Array of descriptors to be calculated (IS NOT CHANGED)
@@ -1254,7 +1298,12 @@ public final class DescriptorCalculator {
      *                              calculation; in parallel mode, interruption is handled internally
      *                              by restoring the thread's interrupt flag via
      *                              {@link Thread#interrupt()}, and the molecules that cannot be calculated
-     *                              because of the interruption yield NaN for all their components
+     *                              because of the interruption yield NaN for all their components.
+     *                              Note: An interruption of the calling thread is only noticed by the next
+     *                              fingerprint calculation on this thread, when it takes a pooled fingerprinter
+     *                              instance; until then (and in parallel mode on the other threads), the
+     *                              calculation continues as usual. Without fingerprint descriptors, the whole
+     *                              calculation is completed and the interrupt status remains set.
      */
     public boolean setDescriptorsForMoleculesBySmilesStringParallelization(
             Descriptor[] descriptors,
@@ -1284,7 +1333,7 @@ public final class DescriptorCalculator {
         if (nanPositionsList == null) {
             throw new NullPointerException(methodName + ": nanPositionsList is null.");
         }
-        // throws NullPointerException or IllegalArgumentException if the matrix or on eof its rows is null or its dimensions are invalid
+        // throws NullPointerException or IllegalArgumentException if the matrix or one of its rows is null or its dimensions are invalid
         this.validateMatrix(matrix, descriptors, moleculeSmilesStringArray, startIndex, methodName);
 
         int numberOfMolecules = moleculeSmilesStringArray.length;
@@ -1299,7 +1348,7 @@ public final class DescriptorCalculator {
         try {
             if (isParallelCalculation) {
 
-                // Advise by Oracle: Parallel streams should use the common Fork-join pool
+                // the parallel stream runs on the common fork-join pool
                 IntStream.range(0, moleculeSmilesStringArray.length).parallel().forEach(
                         i ->
                         {
@@ -1322,7 +1371,7 @@ public final class DescriptorCalculator {
                                 Thread.currentThread().interrupt();
                                 hasNaN.set(true);
                                 this.setNaNForMolecule(descriptors, matrix[i], startIndices, i, collectedNanPositions);
-                            } catch (Exception exception) {
+                            } catch (Exception | StackOverflowError exception) {
                                 hasNaN.set(true);
                                 this.setNaNForMolecule(descriptors, matrix[i], startIndices, i, collectedNanPositions);
                                 DescriptorCalculator.LOGGER.warn(
@@ -1341,7 +1390,7 @@ public final class DescriptorCalculator {
                         }
                     } catch (InterruptedException exception) {
                         throw exception;
-                    } catch (Exception exception) {
+                    } catch (Exception | StackOverflowError exception) {
                         hasNaN.set(true);
                         this.setNaNForMolecule(descriptors, matrix[i], startIndices, i, collectedNanPositions);
                         DescriptorCalculator.LOGGER.warn(
@@ -1565,18 +1614,21 @@ public final class DescriptorCalculator {
 
     /**
      * Helper method to check for NaN values in a calculated descriptor result and track their positions.
+     * Infinite values (positive or negative infinity) are no valid descriptor values either, e.g. the result of a
+     * division by zero or of a double value that is too large for a float: they are set to NaN in the vector and
+     * tracked like NaN values, so that the data vector only contains finite values or NaN.
      * This method is thread-safe when used with a thread-safe collection (the public methods use a
      * ConcurrentLinkedQueue). Note that not the entire data vector is checked but only the positions
      * [startIndex, startIndex + numComponents].
      *
-     * @param vector The vector containing calculated descriptor values
+     * @param vector The vector containing calculated descriptor values (MAY BE CHANGED: infinite values are set to NaN)
      * @param startIndex The start index in the vector for this descriptor
      * @param numComponents The number of components for this descriptor
      * @param moleculeIndex The index of the current molecule
      * @param nanPositionsList Collection to track NaN positions (can be null if NaN positions should not be tracked);
      *                      must be thread-safe for parallel access; will be filled with int[] {[moleculeIndex, componentIndex]}
      *                      pairs of NaN value positions (i.e. row and column index in the data matrix)
-     * @return true if any NaN values were found, false otherwise
+     * @return true if any NaN (or infinite) values were found, false otherwise
      */
     static boolean checkAndTrackNaNValues(
             float[] vector,
@@ -1587,7 +1639,9 @@ public final class DescriptorCalculator {
     ) {
         boolean foundNaN = false;
         for (int i = 0; i < numComponents; i++) {
-            if (Float.isNaN(vector[startIndex + i])) {
+            if (!Float.isFinite(vector[startIndex + i])) {
+                // an infinite value is no valid value, so it is set to NaN like the value of a failed calculation
+                vector[startIndex + i] = Float.NaN;
                 foundNaN = true;
                 // Track NaN position if nanPositionsList is provided
                 // Note: nanPositionsList must be thread-safe for parallel access
